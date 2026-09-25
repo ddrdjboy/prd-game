@@ -1,0 +1,35 @@
+.career-pick {
+  padding: 1rem 0 2rem;
+}
+
+.career-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.career-card {
+  text-align: left;
+  padding: 1.25rem;
+  background: linear-gradient(160deg, #1d3b31, #152821);
+  border: 1px solid var(--line);
+  min-height: 220px;
+}
+
+.career-card:hover {
+  border-color: var(--accent2);
+  transform: translateY(-2px);
+}
+
+.career-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.career-card .trait {
+  color: var(--accent);
+}

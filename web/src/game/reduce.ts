@@ -1,0 +1,1230 @@
+import { buildTrack, isPaydaySpace, move, spaceHasLocationAction } from './board'
+import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, SEASONS } from './config'
+import { CAREERS } from './careers'
+import { createGame } from './createGame'
+import { EVENTS, canAffordChoice, choiceCashCost, pickEventChoice, type EventEffect } from './events'
+import {
+  DATE_VENUES,
+  dateBoostFor,
+  dateVenueById,
+  dateableRelations,
+  pickAiDate,
+} from './dating'
+import {
+  OFFICE_POACH_COST,
+  OFFICE_RECOMMEND_COST,
+  OFFICE_DOWN_COST,
+  OFFICE_UP_COST,
+  adjustDelta,
+  poachSuccessChance,
+  poachableTargets,
+} from './office'
+import { CASINO_BETS, SHOP_ITEMS, VACANT_COST, VACANT_SHOP_CASHFLOW, shopItemById } from './location'
+import { resolveSlotEvent } from './slotEvents'
+import { calcFinance, canPromote, round2 } from './finance'
+import { NETWORK_NAMES, ROMANCE_NAMES, pickName } from './relationsCatalog'
+import { createRng } from './rng'
+import type {
+  GameAction,
+  GameState,
+  PlayerState,
+  Relation,
+  Shop,
+  Track,
+} from './types'
+
+function pushLog(state: GameState, text: string): GameState {
+  const id = `log-${state.logs.length}-${state.rngState}`
+  return { ...state, logs: [...state.logs.slice(-80), { id, text }] }
+}
+
+function updatePlayer(state: GameState, playerId: string, fn: (p: PlayerState) => PlayerState): GameState {
+  return {
+    ...state,
+    players: state.players.map((p) => (p.id === playerId ? fn(p) : p)),
+  }
+}
+
+function usedNames(state: GameState): Set<string> {
+  const s = new Set<string>()
+  for (const p of state.players) for (const r of p.relations) s.add(r.name)
+  return s
+}
+
+function buyShop(
+  state: GameState,
+  playerId: string,
+  effect: Extract<EventEffect, { type: 'offerShop' }>,
+  rng: () => number,
+): GameState {
+  let s = state
+  const p = s.players.find((x) => x.id === playerId)!
+  if (p.cash < effect.cost) return pushLog(s, `${p.name} 现金不足，未能开「${effect.name}」。`)
+  const ops = p.relations.filter((r) => r.status !== 'broken')
+  if (!ops.length) return pushLog(s, `${p.name} 没有经营者人选。`)
+  const op = ops.sort((a, b) => b.score - a.score)[0]
+  const shop: Shop = {
+    id: `shop-${p.shops.length}-${rng()}`,
+    name: effect.name,
+    level: effect.baseCashflow >= 0.55 ? 2 : 1,
+    baseCashflow: effect.baseCashflow,
+    operatorRelationId: op.id,
+  }
+  s = updatePlayer(s, playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash - effect.cost),
+    shops: [...pl.shops, shop],
+  }))
+  return pushLog(s, `${p.name} 开设「${effect.name}」，由「${op.name}」经营。`)
+}
+
+function marry(state: GameState, playerId: string, relationId: string, accept: boolean): GameState {
+  let s = state
+  const name = s.players.find((p) => p.id === playerId)!.name
+  if (!accept) {
+    s = updatePlayer(s, playerId, (p) => ({
+      ...p,
+      relations: p.relations.map((r) =>
+        r.id === relationId ? { ...r, score: Math.max(0, r.score - 15) } : r,
+      ),
+    }))
+    return pushLog(s, `${name} 暂缓了婚事。`)
+  }
+  s = updatePlayer(s, playerId, (p) => ({
+    ...p,
+    cash: round2(p.cash - 0.5),
+    relations: p.relations.map((r) => {
+      if (r.id === relationId) {
+        return { ...r, status: 'married' as const, locked: true, score: Math.min(100, r.score + 10) }
+      }
+      if (r.kind === 'romance' && r.status !== 'broken') {
+        return { ...r, score: Math.max(0, Math.floor(r.score * 0.5)) }
+      }
+      return r
+    }),
+  }))
+  return pushLog(s, `${name} 结婚了！其他恋情降温。`)
+}
+
+function transferRelation(state: GameState, fromId: string, toId: string, relationId: string): GameState {
+  const from = state.players.find((p) => p.id === fromId)!
+  const rel = from.relations.find((r) => r.id === relationId)
+  if (!rel) return state
+  let s = updatePlayer(state, fromId, (p) => ({
+    ...p,
+    relations: p.relations.filter((r) => r.id !== relationId),
+    shops: p.shops.filter((shop) => shop.operatorRelationId !== relationId),
+  }))
+  s = updatePlayer(s, toId, (p) => ({
+    ...p,
+    relations: [...p.relations, { ...rel, score: Math.max(20, rel.score - 20), locked: false }],
+  }))
+  return pushLog(s, `${s.players.find((p) => p.id === toId)!.name} 挖走了「${rel.name}」！`)
+}
+
+function maybePoach(state: GameState, actorId: string, rng: () => number): GameState {
+  const targets: { player: PlayerState; rel: Relation }[] = []
+  for (const p of state.players) {
+    if (p.id === actorId) continue
+    for (const r of p.relations) {
+      if (r.status !== 'broken' && !r.locked) targets.push({ player: p, rel: r })
+    }
+  }
+  if (!targets.length) return state
+  const pick = targets[Math.floor(rng() * targets.length)]
+  if (pick.player.isHuman) {
+    return {
+      ...state,
+      pendingDecision: {
+        type: 'poach',
+        playerId: pick.player.id,
+        fromPlayerId: actorId,
+        relationId: pick.rel.id,
+      },
+    }
+  }
+  const success = rng() < (pick.rel.score > 70 ? 0.15 : 0.35)
+  if (!success) {
+    return pushLog(state, `${state.players.find((p) => p.id === actorId)!.name} 挖角失败。`)
+  }
+  return transferRelation(state, pick.player.id, actorId, pick.rel.id)
+}
+
+export function applyEffects(
+  state: GameState,
+  playerId: string,
+  effects: EventEffect[],
+  rng: () => number,
+): GameState {
+  let s = state
+  const player = () => s.players.find((p) => p.id === playerId)!
+
+  for (const effect of effects) {
+    switch (effect.type) {
+      case 'cash':
+        s = updatePlayer(s, playerId, (p) => ({ ...p, cash: round2(p.cash + effect.delta) }))
+        break
+      case 'salary':
+        s = updatePlayer(s, playerId, (p) => ({
+          ...p,
+          salary: round2(Math.max(0.4, p.salary + effect.delta)),
+        }))
+        break
+      case 'liability':
+        s = updatePlayer(s, playerId, (p) => ({
+          ...p,
+          liabilities: round2(Math.max(0, p.liabilities + effect.delta)),
+        }))
+        break
+      case 'meet': {
+        const pool = effect.relationKind === 'network' ? NETWORK_NAMES : ROMANCE_NAMES
+        const name = pickName(pool, usedNames(s), rng)
+        const score = effect.score ?? 40
+        const boost = player().trait === 'networkBoost' && effect.relationKind === 'network' ? 8 : 0
+        const rBoost = player().trait === 'romanceBoost' && effect.relationKind === 'romance' ? 8 : 0
+        const rel: Relation = {
+          id: `rel-${s.logs.length}-${Math.floor(rng() * 1e6)}`,
+          kind: effect.relationKind,
+          name,
+          score: Math.min(100, score + boost + rBoost),
+          status: effect.relationKind === 'network' ? 'new' : 'dating',
+          locked: false,
+        }
+        s = updatePlayer(s, playerId, (p) => ({ ...p, relations: [...p.relations, rel] }))
+        s = pushLog(
+          s,
+          `${player().name} 结识了${effect.relationKind === 'network' ? '人脉' : '恋人'}「${name}」。`,
+        )
+        break
+      }
+      case 'boostRelation':
+        s = updatePlayer(s, playerId, (p) => {
+          const candidates = p.relations.filter(
+            (r) => r.status !== 'broken' && (!effect.kind || r.kind === effect.kind),
+          )
+          if (!candidates.length) return p
+          const target = candidates[Math.floor(rng() * candidates.length)]
+          return {
+            ...p,
+            relations: p.relations.map((r) => {
+              if (r.id !== target.id) return r
+              const score = Math.max(0, Math.min(100, r.score + effect.amount))
+              let status = r.status
+              if (score <= 10 && effect.amount < 0) status = 'broken'
+              if (r.kind === 'network' && score >= 50 && r.status === 'new') status = 'stable'
+              if (r.kind === 'network' && score >= 75 && (r.status === 'stable' || r.status === 'new')) {
+                status = 'partner'
+              }
+              return {
+                ...r,
+                score,
+                status,
+                locked: status === 'partner' || status === 'married' || r.locked,
+              }
+            }),
+          }
+        })
+        break
+      case 'offerShop': {
+        const p = player()
+        const ops = p.relations.filter((r) => r.status !== 'broken')
+        if (!ops.length) {
+          s = pushLog(s, `${p.name} 想开「${effect.name}」，但还没有可绑定的关系人。`)
+          break
+        }
+        if (p.cash < effect.cost) {
+          s = pushLog(s, `${p.name} 看上「${effect.name}」，现金不足（需 ${effect.cost} 万）。`)
+          break
+        }
+        const isBig = effect.cost >= Math.max(0.01, p.cash) * BIG_SPEND_RATIO
+        if (p.isHuman && isBig && !s.pendingDecision) {
+          s = {
+            ...s,
+            pendingDecision: {
+              type: 'bigSpend',
+              playerId,
+              investmentId: `shop-${effect.name}`,
+              cost: effect.cost,
+              cashflow: effect.baseCashflow,
+              name: effect.name,
+            },
+          }
+          break
+        }
+        s = buyShop(s, playerId, effect, rng)
+        break
+      }
+      case 'offerInvest': {
+        const p = player()
+        let cost = effect.cost
+        if (p.trait === 'investDiscount') cost = round2(cost * 0.9)
+        const isBig = Boolean(effect.big) || cost >= Math.max(0.01, p.cash) * BIG_SPEND_RATIO
+        if (p.isHuman && isBig && !s.pendingDecision) {
+          s = {
+            ...s,
+            pendingDecision: {
+              type: 'bigSpend',
+              playerId,
+              investmentId: `inv-${effect.name}`,
+              cost,
+              cashflow: effect.cashflow,
+              name: effect.name,
+            },
+          }
+          break
+        }
+        if (p.cash < cost) {
+          s = pushLog(s, `${p.name} 想买「${effect.name}」，现金不够。`)
+          break
+        }
+        s = updatePlayer(s, playerId, (pl) => ({
+          ...pl,
+          cash: round2(pl.cash - cost),
+          investments: [
+            ...pl.investments,
+            {
+              id: `inv-${pl.investments.length}-${Math.floor(rng() * 1e6)}`,
+              name: effect.name,
+              cost,
+              cashflow: effect.cashflow,
+            },
+          ],
+        }))
+        s = pushLog(s, `${player().name} 购入「${effect.name}」（${cost} 万）。`)
+        break
+      }
+      case 'marketBump':
+        s = updatePlayer(s, playerId, (p) => ({
+          ...p,
+          investments: p.investments.map((i) => ({
+            ...i,
+            cost: round2(i.cost * effect.factor),
+            cashflow: round2(i.cashflow * (effect.factor >= 1 ? 1.05 : 0.95)),
+          })),
+        }))
+        break
+      case 'poachAttempt':
+        s = maybePoach(s, playerId, rng)
+        break
+      case 'marriagePrompt': {
+        const dating = player().relations.find(
+          (r) => r.kind === 'romance' && (r.status === 'dating' || r.status === 'engaged') && r.score >= 60,
+        )
+        if (!dating) break
+        if (player().isHuman) {
+          s = { ...s, pendingDecision: { type: 'marriage', playerId, relationId: dating.id } }
+        } else {
+          s = marry(s, playerId, dating.id, true)
+        }
+        break
+      }
+    }
+  }
+  return s
+}
+
+function applyPayday(state: GameState, playerId: string): GameState {
+  const p = state.players.find((x) => x.id === playerId)!
+  const f = calcFinance(p)
+  let s = updatePlayer(state, playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash + f.seasonalCashflow),
+  }))
+  s = pushLog(s, `${p.name} 结算现金流 ${f.seasonalCashflow >= 0 ? '+' : ''}${f.seasonalCashflow} 万。`)
+  const next = s.players.find((x) => x.id === playerId)!
+  if (next.cash < 0) {
+    s = {
+      ...s,
+      pendingDecision: { type: 'bankrupt', playerId, amount: round2(-next.cash) },
+    }
+  }
+  return s
+}
+
+function chooseCareer(state: GameState, careerId: string): GameState {
+  const career =
+    state.careerChoices.find((c) => c.id === careerId) ?? CAREERS.find((c) => c.id === careerId)
+  if (!career) return state
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, state.players[0].id, (p) => ({
+    ...p,
+    careerId: career.id,
+    salary: career.salary,
+    fixedExpense: career.fixedExpense,
+    cash: career.startingCash,
+    trait: career.trait,
+  }))
+
+  const remaining = CAREERS.filter((c) => c.id !== career.id)
+  for (let i = 1; i < s.players.length; i++) {
+    const idx = Math.floor(rng.next() * remaining.length)
+    const c = remaining.splice(idx, 1)[0] ?? CAREERS[i % CAREERS.length]
+    s = updatePlayer(s, s.players[i].id, (p) => ({
+      ...p,
+      careerId: c.id,
+      salary: c.salary,
+      fixedExpense: c.fixedExpense,
+      cash: c.startingCash,
+      trait: c.trait,
+      name: `AI·${c.name}`,
+    }))
+  }
+
+  s = { ...s, phase: 'playing', careerChoices: [], rngState: rng.state() }
+  return pushLog(s, `你选择了「${career.name}」。人生开始转动。`)
+}
+
+function promote(state: GameState, playerId: string): GameState {
+  const s = updatePlayer(state, playerId, (p) => ({ ...p, track: 'investor' as const, position: 0 }))
+  const name = s.players.find((p) => p.id === playerId)!.name
+  return pushLog(s, `${name} 晋级投资人圈！`)
+}
+
+function rollAndMove(state: GameState): GameState {
+  if (
+    state.phase !== 'playing' ||
+    state.pendingEvent ||
+    state.pendingDecision ||
+    state.pendingDate ||
+    state.moveAnimation ||
+    state.slotSpin
+  ) {
+    return state
+  }
+  const rng = createRng(state.rngState)
+  // 第一位：行走格数 1–9；后两位：0–9 装饰（777 有小奖励）
+  const steps = 1 + Math.floor(rng.next() * 9)
+  const r2 = Math.floor(rng.next() * 10)
+  const r3 = Math.floor(rng.next() * 10)
+  const player = state.players[state.turnPlayerIndex]
+  let s: GameState = {
+    ...state,
+    rngState: rng.state(),
+    lastDice: steps,
+    lastReels: [steps, r2, r3],
+    slotSpin: {
+      playerId: player.id,
+      track: player.track,
+      reels: [steps, r2, r3],
+    },
+  }
+  return pushLog(s, `${player.name} 拉下 777…… 第一位将决定步数`)
+}
+
+/** 拉霸停轮后，按第一位数字开走 */
+function finishSlot(state: GameState): GameState {
+  const spin = state.slotSpin
+  if (!spin) return state
+  const steps = Math.max(1, spin.reels[0])
+  const player = state.players.find((p) => p.id === spin.playerId)!
+  const track = buildTrack(spin.track)
+  const result = move(player.position, steps, track)
+  let s: GameState = {
+    ...state,
+    slotSpin: null,
+    lastDice: steps,
+    lastReels: spin.reels,
+    moveAnimation: {
+      playerId: spin.playerId,
+      track: spin.track,
+      path: result.path,
+      pathIndex: -1,
+      dice: steps,
+      passedPayday: result.passedPayday,
+      finalPosition: result.position,
+      reels: spin.reels,
+    },
+  }
+  s = pushLog(s, `拉霸结果 ${spin.reels.join('-')}，前进 ${steps} 格（第2位定事件类型）`)
+  return s
+}
+
+/** Advance token one space along path; when done, settle landing */
+function animStep(state: GameState): GameState {
+  const anim = state.moveAnimation
+  if (!anim) return state
+  const nextIndex = anim.pathIndex + 1
+  if (nextIndex >= anim.path.length) return finishMove(state)
+
+  const pos = anim.path[nextIndex]
+  return {
+    ...state,
+    moveAnimation: { ...anim, pathIndex: nextIndex },
+    players: state.players.map((p) => (p.id === anim.playerId ? { ...p, position: pos } : p)),
+  }
+}
+
+function finishMove(state: GameState): GameState {
+  const anim = state.moveAnimation
+  if (!anim) return state
+  const track = buildTrack(anim.track)
+  const landed = track[anim.finalPosition]
+  let s: GameState = {
+    ...state,
+    moveAnimation: null,
+    players: state.players.map((p) =>
+      p.id === anim.playerId ? { ...p, position: anim.finalPosition } : p,
+    ),
+  }
+  s = pushLog(s, `走到「${landed.label}」。`)
+
+  const rng = createRng(s.rngState)
+  if (anim.passedPayday || isPaydaySpace(landed.kind)) {
+    s = applyPayday(s, anim.playerId)
+    if (s.pendingDecision) return { ...s, rngState: rng.state() }
+  }
+
+  // 事件由拉霸第 2、3 位决定（与落点无关）
+  const reels = anim.reels ?? s.lastReels ?? ([anim.dice, 1, 0] as [number, number, number])
+  const resolved = resolveSlotEvent(reels, anim.track)
+  const hint = [
+    `拉霸 ${reels.join('-')}`,
+    resolved.kindLabel,
+    resolved.comboLabel,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  s = pushLog(s, `触发事件【${resolved.kindLabel}】${resolved.comboLabel ? `（${resolved.comboLabel}）` : ''}`)
+  if (resolved.extraEffects.length) {
+    s = applyEffects(s, anim.playerId, resolved.extraEffects, () => rng.next())
+  }
+
+  return {
+    ...s,
+    rngState: rng.state(),
+    pendingEvent: {
+      playerId: anim.playerId,
+      eventId: resolved.event.id,
+      title: resolved.event.title,
+      text: resolved.event.text,
+      kind: resolved.event.kind,
+      slotHint: hint,
+      landIndex: anim.finalPosition,
+      landTrack: anim.track,
+    },
+  }
+}
+
+function makeLocation(
+  playerId: string,
+  track: Track,
+  landIndex: number,
+): import('./types').PendingLocation | null {
+  const board = buildTrack(track)
+  const space = board[landIndex]
+  if (!space || !spaceHasLocationAction(space.kind)) return null
+  return {
+    playerId,
+    spaceKind: space.kind,
+    spaceIndex: landIndex,
+    track,
+    label: space.label,
+  }
+}
+
+function resolveEventChoice(state: GameState, choiceId: string): GameState {
+  if (!state.pendingEvent) return state
+  const pending = state.pendingEvent
+  const event = EVENTS.find((e) => e.id === pending.eventId)
+  if (!event) return { ...state, pendingEvent: null }
+  const choice =
+    event.choices.find((x) => x.id === choiceId) ??
+    event.choices.find((x) => x.id === 'accept') ??
+    event.choices[0]
+  if (!choice) return { ...state, pendingEvent: null }
+
+  const player = state.players.find((x) => x.id === pending.playerId)
+  if (player && !canAffordChoice(player.cash, choice.effects) && choiceCashCost(choice.effects) > 0) {
+    return pushLog(state, `现金不足，无法选择「${choice.label}」。`)
+  }
+
+  const rng = createRng(state.rngState)
+  let s: GameState = { ...state, pendingEvent: null }
+  s = pushLog(s, `事件：${event.title} — 选择「${choice.label}」`)
+  s = applyEffects(s, pending.playerId, choice.effects, () => rng.next())
+  s = { ...s, rngState: rng.state() }
+
+  const loc = makeLocation(pending.playerId, pending.landTrack, pending.landIndex)
+  const p = s.players.find((x) => x.id === pending.playerId)!
+  if (canPromote(p) && p.track === 'worker' && !s.pendingDecision) {
+    if (p.isHuman) {
+      return {
+        ...s,
+        pendingDecision: { type: 'promote', playerId: p.id },
+        deferredLocation: loc,
+      }
+    }
+    s = promote(s, p.id)
+  }
+
+  if (loc) s = { ...s, pendingLocation: loc }
+  return s
+}
+
+function releaseDeferredLocation(state: GameState): GameState {
+  if (!state.deferredLocation) return state
+  return {
+    ...state,
+    pendingLocation: state.deferredLocation,
+    deferredLocation: null,
+  }
+}
+
+function clearLocation(state: GameState): GameState {
+  return { ...state, pendingLocation: null }
+}
+
+function locationBuyVacant(state: GameState): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'vacant') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  if (p.cash < VACANT_COST) {
+    return pushLog(clearLocation(state), `${p.name} 现金不足，买不下这片空地。`)
+  }
+  const ops = p.relations.filter((r) => r.status !== 'broken')
+  if (!ops.length) {
+    return pushLog(clearLocation(state), `${p.name} 没有可绑定的经营者，空地只能先放弃。`)
+  }
+  const op = ops.sort((a, b) => b.score - a.score)[0]
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash - VACANT_COST),
+    shops: [
+      ...pl.shops,
+      {
+        id: `lot-${loc.track}-${loc.spaceIndex}-${Math.floor(rng.next() * 1e6)}`,
+        name: `${loc.track === 'worker' ? '市区' : '商圈'}空地店`,
+        level: 1,
+        baseCashflow: VACANT_SHOP_CASHFLOW,
+        operatorRelationId: op.id,
+      },
+    ],
+  }))
+  s = { ...s, rngState: rng.state(), pendingLocation: null }
+  return pushLog(s, `${p.name} 购置空地并开店，由「${op.name}」经营。`)
+}
+
+function locationBuyItem(state: GameState, itemId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'shop') return state
+  const item = shopItemById(itemId)
+  if (!item) return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  if (p.cash < item.cost) {
+    return pushLog(clearLocation(state), `${p.name} 买不起「${item.name}」。`)
+  }
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, loc.playerId, (pl) => ({ ...pl, cash: round2(pl.cash - item.cost) }))
+  if (itemId === 'gift') {
+    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12, kind: 'romance' }], () => rng.next())
+  } else if (itemId === 'wine') {
+    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12, kind: 'network' }], () => rng.next())
+  } else if (itemId === 'course') {
+    s = applyEffects(s, loc.playerId, [{ type: 'salary', delta: 0.08 }], () => rng.next())
+  } else if (itemId === 'gadget') {
+    s = applyEffects(s, loc.playerId, [{ type: 'cash', delta: 0.1 }], () => rng.next())
+  }
+  s = { ...s, rngState: rng.state(), pendingLocation: null }
+  return pushLog(s, `${p.name} 在商店购买「${item.name}」。`)
+}
+
+function locationPoach(state: GameState): GameState {
+  /** AI / 兼容：随机挑一个可挖目标 */
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'office') return state
+  const targets = poachableTargets(loc.playerId, state.players)
+  if (!targets.length) {
+    return pushLog(clearLocation(state), `${state.players.find((p) => p.id === loc.playerId)!.name} 找不到可挖对象。`)
+  }
+  const rng = createRng(state.rngState)
+  const pick = targets[Math.floor(rng.next() * targets.length)]
+  return officePoach({ ...state, rngState: rng.state() }, pick.owner.id, pick.rel.id)
+}
+
+function aiOfficeAction(state: GameState): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'office') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  const targets = poachableTargets(loc.playerId, state.players)
+  if (targets.length && p.cash + 1e-9 >= OFFICE_POACH_COST) return locationPoach(state)
+  if (p.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return officeRecommend(state, 'network')
+  return pushLog(clearLocation(state), `${p.name} 离开了事务所。`)
+}
+
+function officeRecommend(state: GameState, kind: 'network' | 'romance'): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'office') return state
+  const player = state.players.find((p) => p.id === loc.playerId)!
+  if (player.cash + 1e-9 < OFFICE_RECOMMEND_COST) {
+    return pushLog(state, '现金不足，无法请事务所推荐好友。')
+  }
+  const rng = createRng(state.rngState)
+  let s: GameState = {
+    ...updatePlayer(state, loc.playerId, (p) => ({
+      ...p,
+      cash: round2(p.cash - OFFICE_RECOMMEND_COST),
+    })),
+    pendingLocation: null,
+  }
+  const score = 35 + Math.floor(rng.next() * 11)
+  s = applyEffects(
+    s,
+    loc.playerId,
+    [{ type: 'meet', relationKind: kind, score }],
+    () => rng.next(),
+  )
+  s = pushLog(
+    s,
+    `${player.name} 花 ${OFFICE_RECOMMEND_COST} 万请事务所推荐了一位${kind === 'network' ? '人脉' : '恋人'}。`,
+  )
+  return { ...s, rngState: rng.state() }
+}
+
+function officeAdjust(
+  state: GameState,
+  ownerId: string,
+  relationId: string,
+  direction: 'up' | 'down',
+): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'office') return state
+  const actor = state.players.find((p) => p.id === loc.playerId)!
+  const owner = state.players.find((p) => p.id === ownerId)
+  const rel = owner?.relations.find((r) => r.id === relationId)
+  if (!owner || !rel || rel.status === 'broken') return state
+  if (ownerId !== loc.playerId && rel.locked) {
+    return pushLog(state, '对方关系已锁定，无法调节。')
+  }
+  const cost = direction === 'up' ? OFFICE_UP_COST : OFFICE_DOWN_COST
+  if (actor.cash + 1e-9 < cost) {
+    return pushLog(state, '现金不足，无法调节好感。')
+  }
+  const delta = adjustDelta(loc.playerId, ownerId, direction)
+  let s = updatePlayer(state, loc.playerId, (p) => ({
+    ...p,
+    cash: round2(p.cash - cost),
+  }))
+  s = boostRelationById(s, ownerId, relationId, delta)
+  s = { ...s, pendingLocation: null }
+  const verb = direction === 'up' ? '升温' : '降温'
+  const whose = ownerId === loc.playerId ? '自己的' : `${owner.name} 的`
+  return pushLog(s, `${actor.name} 花 ${cost} 万让${whose}「${rel.name}」好感${verb}（${delta > 0 ? '+' : ''}${delta}）。`)
+}
+
+function officePoach(state: GameState, targetPlayerId: string, relationId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'office') return state
+  const actor = state.players.find((p) => p.id === loc.playerId)!
+  if (targetPlayerId === loc.playerId) return state
+  const target = state.players.find((p) => p.id === targetPlayerId)
+  const rel = target?.relations.find((r) => r.id === relationId)
+  if (!target || !rel || rel.status === 'broken' || rel.locked) {
+    return pushLog(clearLocation(state), '该目标无法挖角。')
+  }
+  if (actor.cash + 1e-9 < OFFICE_POACH_COST) {
+    return pushLog(state, '现金不足，无法发起挖角。')
+  }
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, loc.playerId, (p) => ({
+    ...p,
+    cash: round2(p.cash - OFFICE_POACH_COST),
+  }))
+  s = { ...s, pendingLocation: null, rngState: rng.state() }
+  s = pushLog(s, `${actor.name} 花 ${OFFICE_POACH_COST} 万委托事务所挖「${rel.name}」。`)
+
+  if (target.isHuman) {
+    return {
+      ...s,
+      pendingDecision: {
+        type: 'poach',
+        playerId: target.id,
+        fromPlayerId: loc.playerId,
+        relationId: rel.id,
+      },
+    }
+  }
+
+  const chance = poachSuccessChance(rel.score)
+  if (rng.next() >= chance) {
+    return { ...pushLog(s, `${actor.name} 挖角失败。`), rngState: rng.state() }
+  }
+  s = transferRelation(s, target.id, loc.playerId, rel.id)
+  return { ...s, rngState: rng.state() }
+}
+
+function locationManage(state: GameState): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'manage') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  if (!p.shops.length) {
+    return pushLog(clearLocation(state), `${p.name} 还没有店铺可经营。`)
+  }
+  if (p.cash < 0.2) {
+    return pushLog(clearLocation(state), `${p.name} 没钱追加经营投入。`)
+  }
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash - 0.2),
+    shops: pl.shops.map((shop) =>
+      shop.level < 3
+        ? {
+            ...shop,
+            level: (shop.level + 1) as 1 | 2 | 3,
+            baseCashflow: round2(shop.baseCashflow + 0.08),
+          }
+        : { ...shop, baseCashflow: round2(shop.baseCashflow + 0.03) },
+    ),
+  }))
+  s = clearLocation(s)
+  return pushLog(s, `${p.name} 在经营区升级/加码店铺。`)
+}
+
+/** 赌场：约 45% 赢 2 倍（净赚 bet），否则输掉 bet */
+function locationGamble(state: GameState, bet: number): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'casino') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  const stake = round2(bet)
+  if (stake <= 0 || p.cash < stake) {
+    return pushLog(clearLocation(state), `${p.name} 筹码不够，庄家请你离开。`)
+  }
+  const rng = createRng(state.rngState)
+  const win = rng.next() < 0.45
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash + (win ? stake : -stake)),
+  }))
+  s = { ...s, rngState: rng.state(), pendingLocation: null }
+  return pushLog(
+    s,
+    win
+      ? `${p.name} 在赌场押 ${stake} 万，赢了！现金 +${stake} 万`
+      : `${p.name} 在赌场押 ${stake} 万，输光了这一注。`,
+  )
+}
+
+function boostRelationById(
+  state: GameState,
+  playerId: string,
+  relationId: string,
+  amount: number,
+): GameState {
+  return updatePlayer(state, playerId, (p) => ({
+    ...p,
+    relations: p.relations.map((r) => {
+      if (r.id !== relationId) return r
+      const score = Math.max(0, Math.min(100, r.score + amount))
+      let status = r.status
+      if (score <= 10 && amount < 0) status = 'broken'
+      if (r.kind === 'romance' && score >= 80 && status === 'dating') status = 'engaged'
+      return {
+        ...r,
+        score,
+        status,
+        locked: status === 'partner' || status === 'married' || status === 'engaged' || r.locked,
+      }
+    }),
+  }))
+}
+
+function completeDate(
+  state: GameState,
+  playerId: string,
+  relationId: string,
+  venueId: string,
+): GameState {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player || player.actionPoints <= 0) return state
+  const rel = dateableRelations(player).find((r) => r.id === relationId)
+  const venue = dateVenueById(venueId)
+  if (!rel || !venue) return state
+  if (player.cash + 1e-9 < venue.cost) {
+    return pushLog(state, `现金不足，去不了「${venue.name}」。`)
+  }
+  const boost = dateBoostFor(player, venue, rel)
+  let s = updatePlayer(state, playerId, (p) => ({
+    ...p,
+    actionPoints: p.actionPoints - 1,
+    cash: round2(p.cash - venue.cost),
+  }))
+  s = boostRelationById(s, playerId, relationId, boost)
+  s = { ...s, pendingDate: null }
+  const verb = rel.kind === 'romance' ? '约会' : '交友'
+  return pushLog(s, `${player.name} 和「${rel.name}」${verb}：${venue.name}（好感+${boost}）。`)
+}
+
+function startDateAction(state: GameState): GameState {
+  const player = state.players[state.turnPlayerIndex]
+  const candidates = dateableRelations(player)
+  if (!candidates.length) {
+    return pushLog(state, `${player.name} 还没有可约会·交友的对象。`)
+  }
+  const instant = !player.isHuman || state.autoEnabled
+  if (instant) {
+    const pick = pickAiDate(player)
+    if (!pick) return pushLog(state, `${player.name} 现金不足，约不出去。`)
+    return completeDate(state, player.id, pick.relationId, pick.venueId)
+  }
+  return {
+    ...state,
+    pendingDate: { playerId: player.id, step: 'pickPartner' },
+  }
+}
+
+function datePickPartner(state: GameState, relationId: string): GameState {
+  if (!state.pendingDate || state.pendingDate.step !== 'pickPartner') return state
+  const player = state.players.find((p) => p.id === state.pendingDate!.playerId)
+  if (!player) return state
+  if (!dateableRelations(player).some((r) => r.id === relationId)) return state
+  return {
+    ...state,
+    pendingDate: { playerId: player.id, step: 'pickVenue', relationId },
+  }
+}
+
+function dateConfirmVenue(state: GameState, venueId: string): GameState {
+  if (!state.pendingDate || state.pendingDate.step !== 'pickVenue' || !state.pendingDate.relationId) {
+    return state
+  }
+  return completeDate(state, state.pendingDate.playerId, state.pendingDate.relationId, venueId)
+}
+
+function dateCancel(state: GameState): GameState {
+  if (!state.pendingDate) return state
+  return pushLog({ ...state, pendingDate: null }, '取消了约会·交友安排。')
+}
+
+function resolvePendingDateAuto(state: GameState): GameState {
+  const pd = state.pendingDate
+  if (!pd) return state
+  const player = state.players.find((p) => p.id === pd.playerId)
+  if (!player) return { ...state, pendingDate: null }
+  if (pd.step === 'pickPartner') {
+    const list = dateableRelations(player)
+    if (!list.length) return dateCancel(state)
+    const best = [...list].sort((a, b) => b.score - a.score)[0]
+    return datePickPartner(state, best.id)
+  }
+  const affordable = DATE_VENUES.filter((v) => player.cash + 1e-9 >= v.cost)
+  if (!affordable.length || !pd.relationId) return dateCancel(state)
+  const venue = [...affordable].sort((a, b) => b.cost - a.cost)[0]
+  return dateConfirmVenue(state, venue.id)
+}
+
+function spendAction(state: GameState, action: 'date'): GameState {
+  const player = state.players[state.turnPlayerIndex]
+  if (
+    player.actionPoints <= 0 ||
+    state.pendingEvent ||
+    state.pendingDecision ||
+    state.pendingDate ||
+    state.moveAnimation ||
+    state.slotSpin ||
+    state.pendingLocation
+  ) {
+    return state
+  }
+
+  if (action === 'date') return startDateAction(state)
+  return state
+}
+
+function endTurn(state: GameState): GameState {
+  if (
+    state.pendingEvent ||
+    state.pendingDecision ||
+    state.pendingDate ||
+    state.moveAnimation ||
+    state.slotSpin ||
+    state.pendingLocation
+  ) {
+    return state
+  }
+  let nextIndex = state.turnPlayerIndex + 1
+  let s = state
+
+  if (nextIndex >= state.players.length) {
+    nextIndex = 0
+    let seasonIndex = state.seasonIndex + 1
+    let age = state.age
+    if (seasonIndex >= 4) {
+      seasonIndex = 0
+      age += 1
+    }
+    s = {
+      ...s,
+      seasonIndex,
+      age,
+      turnPlayerIndex: 0,
+      players: s.players.map((p) => ({ ...p, actionPoints: ACTION_POINTS_PER_SEASON })),
+    }
+    s = pushLog(s, `—— ${age} 岁 · ${SEASONS[seasonIndex]} ——`)
+    if (age > state.endAge) {
+      return {
+        ...s,
+        phase: 'settlement',
+        pendingEvent: null,
+        pendingDecision: null,
+        pendingLocation: null,
+        deferredLocation: null,
+        pendingDate: null,
+        moveAnimation: null,
+        slotSpin: null,
+      }
+    }
+  } else {
+    s = { ...s, turnPlayerIndex: nextIndex }
+  }
+
+  const current = s.players[s.turnPlayerIndex]
+  if (canPromote(current) && current.track === 'worker') {
+    if (current.isHuman) s = { ...s, pendingDecision: { type: 'promote', playerId: current.id } }
+    else s = promote(s, current.id)
+  }
+  return s
+}
+
+export function isCriticalPending(state: GameState): boolean {
+  if (!state.pendingDecision) return false
+  const t = state.pendingDecision.type
+  if (state.autoSensitivity === 'low') return t === 'bankrupt' || t === 'poach'
+  if (state.autoSensitivity === 'high') return true
+  return t === 'promote' || t === 'marriage' || t === 'bigSpend' || t === 'poach' || t === 'bankrupt'
+}
+
+function pickSpend(_p: PlayerState): 'date' {
+  return 'date'
+}
+
+/** One atomic auto step */
+export function autoStep(state: GameState): GameState {
+  if (state.phase !== 'playing') return state
+
+  if (state.slotSpin) {
+    return finishSlot(state)
+  }
+
+  // Skip walk animation in auto/AI
+  if (state.moveAnimation) {
+    return finishMove(state)
+  }
+
+  if (state.pendingDecision) {
+    const d = state.pendingDecision
+    const ownerId = d.playerId
+    const owner = state.players.find((p) => p.id === ownerId)
+    if (owner?.isHuman && isCriticalPending(state)) return state
+    if (d.type === 'promote') {
+      let s = promote({ ...state, pendingDecision: null }, d.playerId)
+      return releaseDeferredLocation(s)
+    }
+    if (d.type === 'marriage') return marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, true)
+    if (d.type === 'bigSpend') return reduce({ ...state }, { type: 'CONFIRM_BIG_SPEND', accept: owner?.aiStyle === 'aggressive' })
+    if (d.type === 'poach') return reduce({ ...state }, { type: 'CONFIRM_POACH', accept: false })
+    if (d.type === 'bankrupt') return reduce({ ...state }, { type: 'RESOLVE_BANKRUPT' })
+    return state
+  }
+
+  if (state.pendingEvent) {
+    const p = state.players.find((x) => x.id === state.pendingEvent!.playerId)
+    if (p?.isHuman && !state.autoEnabled) return state
+    const event = EVENTS.find((e) => e.id === state.pendingEvent!.eventId)
+    if (!event || !p) return resolveEventChoice(state, 'accept')
+    return resolveEventChoice(state, pickEventChoice(event, p))
+  }
+
+  if (state.pendingDate) {
+    const p = state.players.find((x) => x.id === state.pendingDate!.playerId)
+    if (p?.isHuman && !state.autoEnabled) return state
+    return resolvePendingDateAuto(state)
+  }
+
+  if (state.pendingLocation) {
+    const p = state.players.find((x) => x.id === state.pendingLocation!.playerId)
+    if (p?.isHuman && !state.autoEnabled) return state
+    // AI / 自动：按地点偏好行动
+    const loc = state.pendingLocation
+    if (loc.spaceKind === 'vacant') return locationBuyVacant(state)
+    if (loc.spaceKind === 'shop') {
+      const item = SHOP_ITEMS[Math.floor(Math.random() * SHOP_ITEMS.length)]
+      return locationBuyItem(state, item.id)
+    }
+    if (loc.spaceKind === 'office') return aiOfficeAction(state)
+    if (loc.spaceKind === 'manage') return locationManage(state)
+    if (loc.spaceKind === 'casino') return locationGamble(state, CASINO_BETS[0])
+    return clearLocation(state)
+  }
+
+  const current = state.players[state.turnPlayerIndex]
+  if (current.isHuman && !state.autoEnabled) return state
+
+  let s = state
+  if (current.actionPoints > 0) s = spendAction(s, pickSpend(current))
+  if (
+    !s.pendingEvent &&
+    !s.pendingDecision &&
+    !s.pendingDate &&
+    !s.moveAnimation &&
+    !s.slotSpin &&
+    !s.pendingLocation
+  ) {
+    s = rollAndMove(s)
+  }
+  if (s.slotSpin) s = finishSlot(s)
+  if (s.moveAnimation) s = finishMove(s)
+  if (s.pendingDate && (!current.isHuman || s.autoEnabled)) s = resolvePendingDateAuto(s)
+  if (s.pendingEvent && (!current.isHuman || s.autoEnabled)) {
+    const ev = EVENTS.find((e) => e.id === s.pendingEvent!.eventId)
+    const pl = s.players.find((x) => x.id === s.pendingEvent!.playerId)
+    if (ev && pl) s = resolveEventChoice(s, pickEventChoice(ev, pl))
+    else s = resolveEventChoice(s, 'accept')
+  }
+  if (s.pendingLocation && (!current.isHuman || s.autoEnabled)) {
+    const loc = s.pendingLocation
+    if (loc.spaceKind === 'vacant') s = locationBuyVacant(s)
+    else if (loc.spaceKind === 'shop') s = locationBuyItem(s, SHOP_ITEMS[0].id)
+    else if (loc.spaceKind === 'office') s = aiOfficeAction(s)
+    else if (loc.spaceKind === 'manage') s = locationManage(s)
+    else if (loc.spaceKind === 'casino') s = locationGamble(s, CASINO_BETS[0])
+    else s = clearLocation(s)
+  }
+  if (
+    !s.pendingEvent &&
+    !s.pendingDecision &&
+    !s.pendingDate &&
+    !s.moveAnimation &&
+    !s.slotSpin &&
+    !s.pendingLocation
+  ) {
+    s = endTurn(s)
+  }
+  return s
+}
+
+export function reduce(state: GameState, action: GameAction): GameState {
+  switch (action.type) {
+    case 'NEW_GAME':
+      return createGame({ seatCount: action.seatCount, seed: action.seed, endAge: action.endAge })
+    case 'LOAD_STATE':
+      return action.state
+    case 'CHOOSE_CAREER':
+      return chooseCareer(state, action.careerId)
+    case 'ROLL_AND_MOVE':
+      return rollAndMove(state)
+    case 'FINISH_SLOT':
+      return finishSlot(state)
+    case 'ANIM_STEP':
+      return animStep(state)
+    case 'FINISH_MOVE':
+      return finishMove(state)
+    case 'RESOLVE_EVENT_CHOICE':
+      return resolveEventChoice(state, action.choiceId)
+    case 'LOCATION_BUY_VACANT':
+      return locationBuyVacant(state)
+    case 'LOCATION_BUY_ITEM':
+      return locationBuyItem(state, action.itemId)
+    case 'LOCATION_POACH':
+      return locationPoach(state)
+    case 'OFFICE_RECOMMEND':
+      return officeRecommend(state, action.kind)
+    case 'OFFICE_ADJUST':
+      return officeAdjust(state, action.ownerId, action.relationId, action.direction)
+    case 'OFFICE_POACH':
+      return officePoach(state, action.targetPlayerId, action.relationId)
+    case 'LOCATION_MANAGE':
+      return locationManage(state)
+    case 'LOCATION_GAMBLE':
+      return locationGamble(state, action.bet)
+    case 'LOCATION_SKIP':
+      return pushLog(clearLocation(state), '离开此地，什么也没做。')
+    case 'SPEND_ACTION':
+      return spendAction(state, action.action)
+    case 'DATE_PICK_PARTNER':
+      return datePickPartner(state, action.relationId)
+    case 'DATE_CONFIRM_VENUE':
+      return dateConfirmVenue(state, action.venueId)
+    case 'DATE_CANCEL':
+      return dateCancel(state)
+    case 'PROMOTE_TO_INVESTOR': {
+      if (state.pendingDecision?.type !== 'promote') return state
+      const s = promote({ ...state, pendingDecision: null }, state.pendingDecision.playerId)
+      return releaseDeferredLocation(s)
+    }
+    case 'SKIP_PROMOTE': {
+      const s = pushLog({ ...state, pendingDecision: null }, '你选择暂时留在打工人圈。')
+      return releaseDeferredLocation(s)
+    }
+    case 'CONFIRM_MARRIAGE': {
+      if (state.pendingDecision?.type !== 'marriage') return state
+      const d = state.pendingDecision
+      return marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, action.accept)
+    }
+    case 'CONFIRM_BIG_SPEND': {
+      if (state.pendingDecision?.type !== 'bigSpend') return state
+      const d = state.pendingDecision
+      let s: GameState = { ...state, pendingDecision: null }
+      if (!action.accept) return pushLog(s, `放弃了「${d.name}」。`)
+      const p = s.players.find((x) => x.id === d.playerId)!
+      if (p.cash < d.cost) return pushLog(s, '现金不足。')
+      if (d.investmentId.startsWith('shop-')) {
+        const rng = createRng(s.rngState)
+        s = buyShop(
+          s,
+          d.playerId,
+          { type: 'offerShop', name: d.name, baseCashflow: d.cashflow, cost: d.cost },
+          () => rng.next(),
+        )
+        return { ...s, rngState: rng.state() }
+      }
+      s = updatePlayer(s, d.playerId, (pl) => ({
+        ...pl,
+        cash: round2(pl.cash - d.cost),
+        investments: [
+          ...pl.investments,
+          { id: d.investmentId, name: d.name, cost: d.cost, cashflow: d.cashflow },
+        ],
+      }))
+      return pushLog(s, `${p.name} 购入「${d.name}」。`)
+    }
+    case 'CONFIRM_POACH': {
+      if (state.pendingDecision?.type !== 'poach') return state
+      const d = state.pendingDecision
+      let s: GameState = { ...state, pendingDecision: null }
+      if (!action.accept) {
+        s = updatePlayer(s, d.playerId, (p) => ({
+          ...p,
+          cash: round2(p.cash - 0.15),
+          relations: p.relations.map((r) =>
+            r.id === d.relationId ? { ...r, score: Math.min(100, r.score + 5) } : r,
+          ),
+        }))
+        return pushLog(s, '你花力气留住了关系。')
+      }
+      return transferRelation(s, d.playerId, d.fromPlayerId, d.relationId)
+    }
+    case 'RESOLVE_BANKRUPT': {
+      if (state.pendingDecision?.type !== 'bankrupt') return state
+      const d = state.pendingDecision
+      let s: GameState = { ...state, pendingDecision: null }
+      s = updatePlayer(s, d.playerId, (p) => ({
+        ...p,
+        cash: 0,
+        liabilities: round2(p.liabilities + d.amount),
+        investments: p.investments.slice(0, Math.max(0, p.investments.length - 1)),
+      }))
+      return pushLog(s, '负债续命：变卖一笔投资，记账负债。')
+    }
+    case 'END_TURN':
+      return endTurn(state)
+    case 'SET_AUTO':
+      return { ...state, autoEnabled: action.enabled }
+    case 'SET_SENSITIVITY':
+      return { ...state, autoSensitivity: action.value }
+    case 'AUTO_STEP':
+      return autoStep(state)
+    default:
+      return state
+  }
+}

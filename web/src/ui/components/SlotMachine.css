@@ -1,0 +1,88 @@
+.slot-machine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem 0.5rem;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #2a1a0a 0%, #1a1208 55%, #0f1c17 100%);
+  border: 1px solid rgba(226, 177, 74, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+  min-width: min(72%, 220px);
+}
+
+.slot-machine.is-spinning {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px rgba(226, 177, 74, 0.35),
+    0 0 28px rgba(226, 177, 74, 0.25);
+}
+
+.slot-badge {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.28em;
+  color: var(--accent);
+}
+
+.slot-window {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.35rem;
+  border-radius: 8px;
+  background: #070b09;
+  border: 1px solid rgba(242, 239, 230, 0.12);
+}
+
+.slot-reel {
+  aspect-ratio: 0.75;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1c2a24, #101816);
+  border: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  color: var(--ink);
+  transition: transform 0.15s ease;
+}
+
+.slot-reel.emphasis {
+  color: var(--accent);
+  border-color: rgba(226, 177, 74, 0.5);
+  background: linear-gradient(180deg, #2a2410, #1a1608);
+}
+
+.slot-reel.spinning {
+  animation: reel-shake 0.08s linear infinite;
+}
+
+.slot-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.slot-caption strong {
+  color: var(--accent2);
+  font-weight: 600;
+}
+
+@keyframes reel-shake {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}

@@ -1,0 +1,57 @@
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  padding: 0.45rem 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.brand strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+
+.progress-wrap {
+  flex: 1;
+  min-width: 180px;
+}
+
+.progress-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #0c1612;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+}
+
+.top-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.top-actions button {
+  padding: 0.35rem 0.7rem;
+}

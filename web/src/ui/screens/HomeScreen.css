@@ -1,0 +1,47 @@
+.home {
+  min-height: 85vh;
+  display: grid;
+  place-items: center;
+}
+
+.home-hero {
+  max-width: 640px;
+  text-align: left;
+}
+
+.home-hero h1 {
+  font-size: clamp(2.8rem, 8vw, 4.5rem);
+  line-height: 1.05;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+}
+
+.eyebrow {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent2);
+  font-size: 0.8rem;
+}
+
+.lede {
+  font-size: 1.1rem;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 1.5rem;
+}
+
+.seat-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.hint {
+  margin-top: 1.5rem;
+  font-size: 0.85rem;
+}
+
+.hint code {
+  color: var(--accent);
+}
