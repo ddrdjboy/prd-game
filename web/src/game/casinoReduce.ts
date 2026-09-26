@@ -119,9 +119,9 @@ export function casinoDiceBet(
 
   const rng = createRng(state.rngState)
   const dice = roll2d6(() => rng.next())
-  let round = {
+  let round: import('./casino').DiceRound = {
     ...emptyDice(),
-    phase: 'comeOut' as const,
+    phase: 'comeOut',
     line,
     stake,
     fieldStake: field,

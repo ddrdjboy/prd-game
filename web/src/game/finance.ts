@@ -21,7 +21,7 @@ export function shopStaffMods(
 ): { staffScore: number; skillBonus: number; managerBonus: number; hasStaff: boolean } {
   const staff = shop.staffIds
     .map((id) => relations.find((r) => r.id === id))
-    .filter((r): r is Relation => Boolean(r) && r.status !== 'broken')
+    .filter((r): r is Relation => r != null && r.status !== 'broken')
   if (!staff.length) {
     return { staffScore: 0, skillBonus: 0, managerBonus: 0, hasStaff: false }
   }

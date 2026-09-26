@@ -226,7 +226,7 @@ export function bjDouble(round: BlackjackRound): BlackjackRound {
   })
 }
 
-export function bjSplit(round: BlackjackRound, rng: () => number): BlackjackRound {
+export function bjSplit(round: BlackjackRound, _rng: () => number): BlackjackRound {
   if (round.phase !== 'player' || round.splitUsed) return round
   const hand = round.playerHands[0]
   if (round.playerHands.length !== 1 || hand.cards.length !== 2) return round
