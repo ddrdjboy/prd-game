@@ -5,7 +5,7 @@ export type EventEffect =
   | { type: 'salary'; delta: number }
   | { type: 'meet'; relationKind: 'network' | 'romance'; score?: number }
   | { type: 'boostRelation'; amount: number; kind?: 'network' | 'romance' }
-  | { type: 'offerShop'; name: string; baseCashflow: number; cost: number }
+  | { type: 'offerShop'; name: string; baseCashflow: number; cost: number; typeId?: string }
   | { type: 'offerInvest'; name: string; cost: number; cashflow: number; big?: boolean }
   | { type: 'marketBump'; factor: number }
   | { type: 'liability'; delta: number }
@@ -93,7 +93,7 @@ export const EVENTS: GameEvent[] = [
     title: '路边摊意向',
     text: '朋友提议一起摆摊试水。',
     choices: [
-      c('accept', '入伙开摊', [{ type: 'offerShop', name: '街头摊位', baseCashflow: 0.25, cost: 0.8 }]),
+      c('accept', '入伙开摊', [{ type: 'offerShop', name: '街头摊位', typeId: 'stall', baseCashflow: 0.25, cost: 0.8 }]),
       c('decline', '婉拒', []),
       c('raise', '加码装修摊位', [{ type: 'offerShop', name: '精装摊位', baseCashflow: 0.38, cost: 1.3 }]),
     ],
@@ -137,7 +137,7 @@ export const EVENTS: GameEvent[] = [
     title: '咖啡馆合伙',
     text: '熟人想开咖啡馆找人搭一脚。',
     choices: [
-      c('accept', '入股合伙', [{ type: 'offerShop', name: '角落咖啡馆', baseCashflow: 0.4, cost: 1.5 }]),
+      c('accept', '入股合伙', [{ type: 'offerShop', name: '角落咖啡馆', typeId: 'cafe', baseCashflow: 0.4, cost: 1.5 }]),
       c('decline', '只喝咖啡不投资', []),
       c('raise', '占更大股份', [{ type: 'offerShop', name: '主理咖啡馆', baseCashflow: 0.6, cost: 2.4 }]),
     ],
@@ -170,7 +170,7 @@ export const EVENTS: GameEvent[] = [
     title: '便利店加盟',
     text: '连锁便利店开放加盟名额。',
     choices: [
-      c('accept', '加盟', [{ type: 'offerShop', name: '便利店', baseCashflow: 0.55, cost: 2.2 }]),
+      c('accept', '加盟', [{ type: 'offerShop', name: '便利店', typeId: 'convenience', baseCashflow: 0.55, cost: 2.2 }]),
       c('decline', '名额让出', []),
       c('raise', '开双班旗舰', [{ type: 'offerShop', name: '旗舰便利店', baseCashflow: 0.8, cost: 3.5 }]),
     ],
@@ -824,7 +824,7 @@ export const EVENTS: GameEvent[] = [
     title: '合伙人提案',
     text: '更大生意找上门。',
     choices: [
-      c('accept', '开品牌店', [{ type: 'offerShop', name: '品牌店', baseCashflow: 0.7, cost: 3.0 }]),
+      c('accept', '开品牌店', [{ type: 'offerShop', name: '品牌店', typeId: 'brand', baseCashflow: 0.7, cost: 3.0 }]),
       c('decline', '婉拒', []),
       c('raise', '双店计划', [{ type: 'offerShop', name: '双子品牌店', baseCashflow: 1.0, cost: 4.5 }]),
     ],

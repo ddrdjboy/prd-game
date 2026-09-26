@@ -15,6 +15,8 @@ export const SLOT_SPIN_MS = 1400
 export const COMBO_HOLD_MS = 420
 /** 发薪/晋级横幅展示时长 */
 export const MOMENT_BANNER_MS = 1200
+/** 事件结算后数值变化展示时长 */
+export const EVENT_TASTE_MS = 1500
 
 export const ACTION_POINTS_PER_SEASON = 1
 export const BIG_SPEND_RATIO = 0.5

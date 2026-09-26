@@ -1,5 +1,9 @@
 import { VACANT_COST, VACANT_HIRE_EXTRA, CASINO_BETS, SHOP_ITEMS, investOffersFor } from './location'
 import { OFFICE_POACH_COST, OFFICE_RECOMMEND_COST } from './office'
+import { VACANT_SHOP_TAGS } from './skills'
+import { shopCashflow } from './finance'
+import { upgradeCostFor } from './shopCatalog'
+import { canAssignToShop, eligibleManagers } from './shopStaff'
 import type { PendingLocation, PlayerState } from './types'
 
 export type AiLocationPick =
@@ -10,21 +14,22 @@ export type AiLocationPick =
   | { type: 'recommend'; kind: 'network' | 'romance' }
   | { type: 'upgrade'; shopId: string }
   | { type: 'rebind'; shopId: string; relationId: string }
+  | { type: 'addStaff'; shopId: string; relationId: string }
   | { type: 'gamble'; bet: number }
   | { type: 'parkRest' }
   | { type: 'parkChat'; relationId: string }
   | { type: 'buyInvest'; offerId: string }
 
-function bestOp(p: PlayerState): string | null {
-  const ops = p.relations.filter((r) => r.status !== 'broken')
-  if (!ops.length) return null
-  return [...ops].sort((a, b) => b.score - a.score)[0].id
-}
-
 function weakestOp(p: PlayerState): string | null {
   const ops = p.relations.filter((r) => r.status !== 'broken')
   if (!ops.length) return null
   return [...ops].sort((a, b) => a.score - b.score)[0].id
+}
+
+function skillMatchScore(player: PlayerState, relationId: string, tags: string[]): number {
+  const r = player.relations.find((x) => x.id === relationId)
+  if (!r) return 0
+  return r.skills.filter((s) => tags.includes(s)).length * 10 + r.score
 }
 
 /** @param hasPoachTargets 是否存在可挖对象（由调用方算好） */
@@ -34,11 +39,17 @@ export function pickAiLocationAction(
   hasPoachTargets: boolean,
 ): AiLocationPick {
   const style = player.aiStyle ?? 'steady'
-  const op = bestOp(player)
 
   switch (loc.spaceKind) {
     case 'vacant': {
       const hireCost = VACANT_COST + VACANT_HIRE_EXTRA
+      const free = eligibleManagers(player, VACANT_SHOP_TAGS.requiredSkills)
+      const ranked = [...free].sort(
+        (a, b) =>
+          skillMatchScore(player, b.id, VACANT_SHOP_TAGS.skillTags) -
+          skillMatchScore(player, a.id, VACANT_SHOP_TAGS.skillTags),
+      )
+      const op = ranked[0]?.id ?? null
       if (style === 'steady') {
         if (op && player.cash + 1e-9 >= VACANT_COST * 2) return { type: 'buyVacant', relationId: op }
         return { type: 'skip' }
@@ -82,12 +93,30 @@ export function pickAiLocationAction(
     }
     case 'manage': {
       if (!player.shops.length) return { type: 'skip' }
-      const top = bestOp(player)
-      if (style === 'social' && top) {
-        const mismatch = player.shops.find((s) => s.operatorRelationId !== top)
-        if (mismatch) return { type: 'rebind', shopId: mismatch.id, relationId: top }
+      const shop = player.shops[0]
+      if (style === 'social') {
+        const free = player.relations.filter((r) => canAssignToShop(player, r.id))
+        const best = [...free].sort(
+          (a, b) =>
+            skillMatchScore(player, b.id, shop.skillTags) -
+            skillMatchScore(player, a.id, shop.skillTags),
+        )[0]
+        if (best && shop.staffIds.length < shop.level * 3) {
+          return { type: 'addStaff', shopId: shop.id, relationId: best.id }
+        }
+        const betterManager = shop.staffIds
+          .map((id) => player.relations.find((r) => r.id === id))
+          .filter((r): r is NonNullable<typeof r> => Boolean(r))
+          .sort((a, b) => b.score - a.score)[0]
+        if (betterManager && betterManager.id !== shop.managerId) {
+          return { type: 'rebind', shopId: shop.id, relationId: betterManager.id }
+        }
       }
-      if (player.cash + 1e-9 >= 0.2) return { type: 'upgrade', shopId: player.shops[0].id }
+      const net = shopCashflow(shop, player.relations)
+      const cost = upgradeCostFor(shop)
+      if (net > 0 && player.cash + 1e-9 >= cost * (style === 'aggressive' ? 1 : 1.5)) {
+        return { type: 'upgrade', shopId: shop.id }
+      }
       return { type: 'skip' }
     }
     case 'casino': {

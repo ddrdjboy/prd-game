@@ -47,7 +47,8 @@ describe('park / invest locations', () => {
     g = reduce(g, { type: 'LOCATION_BUY_INVEST', offerId: 'bond' })
     expect(g.players[0].investments.some((i) => i.name.includes('债'))).toBe(true)
     expect(g.players[0].cash).toBeLessThan(before)
-    expect(g.pendingLocation).toBeNull()
+    expect(g.pendingLocation).not.toBeNull()
+    expect(g.pendingExchange?.screen).toBe('funds')
   })
 
   it('invest sell returns 90% cost', () => {
@@ -77,5 +78,6 @@ describe('park / invest locations', () => {
     g = reduce(g, { type: 'LOCATION_SELL_INVEST', investmentId: 'inv1' })
     expect(g.players[0].investments).toHaveLength(0)
     expect(g.players[0].cash).toBeCloseTo(1.9, 5)
+    expect(g.pendingLocation).not.toBeNull()
   })
 })

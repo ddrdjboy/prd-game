@@ -61,7 +61,7 @@ async function clearBlockingModals(page: Page, maxRounds = 16) {
     }
 
     const leave = page.getByRole('button', {
-      name: /走开|离开|下次再说|不买了|不赌了|关闭/,
+      name: /走开|离开赌场|离开|下次再说|不买了|不赌了|关闭/,
     })
     if (await leave.first().isVisible().catch(() => false)) {
       await leave.first().click()
@@ -145,7 +145,7 @@ test.describe('《45岁财富自由》关键路径', () => {
 
     await clearBlockingModals(page)
     await expect(page.locator('.play')).toBeVisible()
-    await expect(page.getByRole('button', { name: /777 拉霸|结束回合/ }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /777 拉霸|结束回合|推进 AI/ }).first()).toBeVisible()
   })
 
   test('TopBar 可切换打断灵敏度', async ({ page }) => {
@@ -166,16 +166,23 @@ test.describe('《45岁财富自由》关键路径', () => {
     for (let turn = 0; turn < 4; turn++) {
       await clearBlockingModals(page)
 
-      const spin = page.getByRole('button', { name: /777 拉霸/ })
-      const endTurn = page.getByRole('button', { name: '结束回合' })
+      const primary = page.locator('.controls-spin .control-spin')
       const pushAi = page.getByRole('button', { name: '推进 AI' })
 
-      if (await spin.isEnabled().catch(() => false)) {
-        await spin.click()
-        await page.waitForTimeout(1600)
-        await clearBlockingModals(page)
-        if (await endTurn.isEnabled().catch(() => false)) {
-          await endTurn.click()
+      if (await primary.isEnabled().catch(() => false)) {
+        const label = ((await primary.textContent()) ?? '').trim()
+        await primary.click()
+        if (/777|拉霸/.test(label)) {
+          await page.waitForTimeout(1600)
+          await clearBlockingModals(page)
+          if (await primary.isEnabled().catch(() => false)) {
+            const after = ((await primary.textContent()) ?? '').trim()
+            if (/结束/.test(after)) {
+              await primary.click()
+              await clearBlockingModals(page)
+            }
+          }
+        } else {
           await clearBlockingModals(page)
         }
       } else if (await pushAi.isVisible().catch(() => false)) {
@@ -184,9 +191,6 @@ test.describe('《45岁财富自由》关键路径', () => {
           await pushAi.click({ timeout: 5_000 })
         }
         await page.waitForTimeout(500)
-        await clearBlockingModals(page)
-      } else if (await endTurn.isEnabled().catch(() => false)) {
-        await endTurn.click()
         await clearBlockingModals(page)
       } else {
         await page.waitForTimeout(400)

@@ -54,6 +54,9 @@ export function createGame(opts: {
     pendingLocation: null,
     deferredLocation: null,
     pendingDate: null,
+    pendingCasino: null,
+    pendingVisitShop: null,
+    pendingExchange: null,
     slotSpin: null,
     moveAnimation: null,
     autoEnabled: false,
@@ -63,5 +66,6 @@ export function createGame(opts: {
     endAge: opts.endAge ?? 45,
     lastDice: null,
     lastReels: null,
+    turnRolled: false,
   }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { SPACES_PER_SIDE } from '../../game/config'
 import { buildTrack, squareCoord } from '../../game/board'
+import { shopTypeById } from '../../game/shopCatalog'
+import { findShopAt, occupiedShopLabel } from '../../game/visitShop'
 import type { BoardSpace, PlayerState, SlotSpin, Track } from '../../game/types'
 import { SlotMachine } from './SlotMachine'
 import './Board.css'
@@ -13,6 +15,19 @@ type Props = {
   lastReels?: [number, number, number] | null
   comboLabel?: string | null
   comboFlash?: boolean
+}
+
+function spaceDisplayLabel(
+  space: BoardSpace,
+  track: Track,
+  players: PlayerState[],
+): string {
+  if (space.kind !== 'vacant') return space.label
+  const owned = findShopAt(players, track, space.index)
+  if (!owned) return space.label
+  const owner = players.find((p) => p.id === owned.ownerId)
+  const typeLabel = shopTypeById(owned.shop.typeId)?.label
+  return occupiedShopLabel(owner?.name ?? '玩家', owned.shop, typeLabel)
 }
 
 function SquareRing({
@@ -63,15 +78,18 @@ function SquareRing({
           }
           const here = players.filter((p) => p.track === track && p.position === space.index)
           const isCorner = (row === 0 || row === n - 1) && (col === 0 || col === n - 1)
+          const owned = space.kind === 'vacant' && findShopAt(players, track, space.index)
+          const label = spaceDisplayLabel(space, track, players)
           return (
             <div
               key={`${track}-${space.index}`}
-              className={`square-cell kind-${space.kind}${isCorner ? ' corner' : ''}${
-                here.some((p) => p.id === highlightPlayerId) ? ' active' : ''
-              }`}
+              className={`square-cell kind-${space.kind}${owned ? ' kind-owned-shop' : ''}${
+                isCorner ? ' corner' : ''
+              }${here.some((p) => p.id === highlightPlayerId) ? ' active' : ''}`}
               style={{ gridRow: row + 1, gridColumn: col + 1 }}
+              title={label}
             >
-              <span className="cell-label">{space.label}</span>
+              <span className="cell-label">{label}</span>
               <div className="tokens">
                 {here.map((p) => (
                   <i

@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  EVENT_TASTE_MS,
   INVESTOR_START_BONUS,
   MOMENT_BANNER_MS,
   MOVE_STEP_MS,
@@ -14,9 +15,19 @@ import {
   relationStatusLabel,
 } from '../../game/dating'
 import { canAffordChoice, choiceCashCost, getEvent } from '../../game/events'
-import { calcFinance, shopBookValue, shopCashflow } from '../../game/finance'
-import { SHOP_ITEMS, VACANT_COST, VACANT_HIRE_EXTRA, investOffersFor, PARK_REST_CASH, PARK_CHAT_BOOST, INVEST_SELL_RATIO } from '../../game/location'
+import { diffPlayerTaste, type TasteLine } from '../../game/eventTaste'
+import { calcFinance, shopBookValue, shopBreakdown } from '../../game/finance'
+import { upgradeCostFor, shopTypeById } from '../../game/shopCatalog'
+import { SHOP_ITEMS, VACANT_COST, VACANT_HIRE_EXTRA, investOffersFor, PARK_REST_CASH, PARK_CHAT_BOOST, INVEST_SELL_RATIO, CASINO_BETS } from '../../game/location'
+import { formatHand, blackjackTotal, cardLabel } from '../../game/casino'
 import { willBreakNextDecay } from '../../game/relations'
+import { SKILLS, skillLabel, shopCapacity } from '../../game/skills'
+import {
+  canAssignToShop,
+  canLearnSkill,
+  occupationLabel,
+  shopHasCapacity,
+} from '../../game/shopStaff'
 import {
   OFFICE_DOWN_COST,
   OFFICE_POACH_COST,
@@ -27,8 +38,18 @@ import {
   poachSuccessChance,
   poachableTargets,
 } from '../../game/office'
+import {
+  VISIT_GIFTS,
+  VISIT_POACH_FEE,
+} from '../../game/visitShop'
+import {
+  EXCHANGE_STAKES,
+  symbolDefById,
+  tradeEquity,
+  type Leverage,
+} from '../../game/exchange'
 import { resolveSlotEvent } from '../../game/slotEvents'
-import type { AutoSensitivity, GameAction, GameState, RelationKind } from '../../game/types'
+import type { AutoSensitivity, GameAction, GameState, PlayerState, RelationKind } from '../../game/types'
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
 import { TopBar } from '../components/TopBar'
@@ -48,6 +69,7 @@ type ShopPanel =
 type FriendPanel =
   | { step: 'list' }
   | { step: 'detail'; relationId: string }
+  | { step: 'train'; relationId: string }
 
 type OfficeUi =
   | { step: 'menu' }
@@ -60,8 +82,11 @@ type OfficeUi =
 type ManageUi =
   | { step: 'menu' }
   | { step: 'upgrade' }
-  | { step: 'rebindShop' }
-  | { step: 'rebindOp'; shopId: string; shopName: string }
+  | { step: 'staffShop' }
+  | { step: 'staffHub'; shopId: string; shopName: string }
+  | { step: 'addStaff'; shopId: string; shopName: string }
+  | { step: 'removeStaff'; shopId: string; shopName: string }
+  | { step: 'setManager'; shopId: string; shopName: string }
 
 export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const human = state.players[0]
@@ -70,29 +95,44 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const moving = Boolean(state.moveAnimation)
   const [shopPanel, setShopPanel] = useState<ShopPanel | null>(null)
   const [friendPanel, setFriendPanel] = useState<FriendPanel | null>(null)
+  const [logOpen, setLogOpen] = useState(false)
+  const [financeOpen, setFinanceOpen] = useState(false)
   const [officeUi, setOfficeUi] = useState<OfficeUi | null>(null)
   const [manageUi, setManageUi] = useState<ManageUi | null>(null)
   const [showTutorial, setShowTutorial] = useState(() => !hasSeenTutorial())
   const [comboFlash, setComboFlash] = useState<string | null>(null)
   const [momentBanner, setMomentBanner] = useState<string | null>(null)
-  const logRef = useRef<HTMLDetailsElement>(null)
+  const [eventTaste, setEventTaste] = useState<{
+    title: string
+    lines: TasteLine[]
+    note?: string
+  } | null>(null)
   const seenLogId = useRef<string | null>(null)
+  const tasteArmRef = useRef<{
+    befores: PlayerState[]
+    title: string
+    waitFor: 'event' | 'location' | 'date' | 'decision'
+    focusId: string
+  } | null>(null)
   const recentLogs = [...state.logs].reverse().slice(0, 12)
   const latestLog = recentLogs[0]?.text
 
-  useLayoutEffect(() => {
-    const el = logRef.current
-    if (!el) return
-    // keep existing behavior below
-    const mq = window.matchMedia('(min-width: 641px)')
-    const sync = () => {
-      el.open = mq.matches
+  const dispatchTaste = (
+    title: string,
+    waitFor: 'event' | 'location' | 'date' | 'decision',
+    action: GameAction,
+    focusId: string = human.id,
+  ) => {
+    tasteArmRef.current = {
+      befores: state.players,
+      title,
+      waitFor,
+      focusId,
     }
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
-  const browseOpen = Boolean(shopPanel || friendPanel)
+    dispatch(action)
+  }
+
+  const browseOpen = Boolean(shopPanel || friendPanel || logOpen || financeOpen)
   const busy = Boolean(
     state.pendingEvent ||
       state.pendingDecision ||
@@ -100,7 +140,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       state.pendingDate ||
       moving ||
       spinning ||
-      comboFlash,
+      comboFlash ||
+      eventTaste,
   )
 
   useEffect(() => {
@@ -108,7 +149,13 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     else setOfficeUi(null)
     if (state.pendingLocation?.spaceKind === 'manage') setManageUi({ step: 'menu' })
     else setManageUi(null)
-  }, [state.pendingLocation])
+    if (state.pendingLocation?.spaceKind === 'casino' && !state.pendingCasino) {
+      dispatch({ type: 'CASINO_ENTER' })
+    }
+    if (state.pendingLocation?.spaceKind === 'invest' && !state.pendingExchange) {
+      dispatch({ type: 'EXCHANGE_ENTER' })
+    }
+  }, [state.pendingLocation, state.pendingCasino, state.pendingExchange, dispatch])
 
   // 777 拉霸动画：有连爆时多停一拍再走棋
   useEffect(() => {
@@ -153,6 +200,56 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       return () => window.clearTimeout(t)
     }
   }, [state.logs])
+
+  // 事件 / 落点 / 约会 / 决策 结算后：展示数值变化 1.5s
+  useEffect(() => {
+    const arm = tasteArmRef.current
+    if (!arm) return
+    const waiting =
+      (arm.waitFor === 'event' && state.pendingEvent) ||
+      (arm.waitFor === 'location' && state.pendingLocation) ||
+      (arm.waitFor === 'date' && state.pendingDate) ||
+      (arm.waitFor === 'decision' && state.pendingDecision)
+    if (waiting) return
+
+    tasteArmRef.current = null
+    if (state.autoEnabled) return
+
+    const lines: TasteLine[] = []
+    for (const after of state.players) {
+      const before = arm.befores.find((p) => p.id === after.id)
+      if (!before) continue
+      const part = diffPlayerTaste(before, after)
+      if (after.id === arm.focusId) {
+        lines.push(...part)
+      } else {
+        for (const line of part) {
+          const isRel =
+            line.label.includes('「') ||
+            line.label.includes('结识') ||
+            line.label.includes('失去')
+          if (isRel) {
+            lines.push({ ...line, label: `${after.name} ${line.label}` })
+          }
+        }
+      }
+    }
+
+    const note =
+      arm.waitFor === 'event' && state.pendingDecision?.type === 'bigSpend'
+        ? `待确认：${state.pendingDecision.name}（${state.pendingDecision.cost} 万）`
+        : arm.waitFor === 'event' && state.pendingDecision?.type === 'marriage'
+          ? '待确认：谈婚论嫁'
+          : arm.waitFor === 'event' && state.pendingDecision?.type === 'promote'
+            ? '可晋级投资人圈'
+            : undefined
+
+    setEventTaste({ title: arm.title, lines, note })
+    const t = window.setTimeout(() => setEventTaste(null), EVENT_TASTE_MS)
+    return () => window.clearTimeout(t)
+    // 依赖 pending* 关闭瞬间；players 已在同一次 render 更新
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.pendingEvent, state.pendingLocation, state.pendingDate, state.pendingDecision])
 
   // 逐格走棋动画
   useEffect(() => {
@@ -237,28 +334,28 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           comboLabel={comboLabelLive}
           comboFlash={Boolean(comboFlash)}
         />
-        <FinancePanel player={human} />
+        <div className="info-split panel">
+          <FinancePanel
+            player={human}
+            open={financeOpen}
+            onOpenChange={setFinanceOpen}
+            disabled={busy || Boolean(shopPanel || friendPanel || logOpen)}
+          />
+          <button
+            type="button"
+            className="log-trigger"
+            disabled={busy || Boolean(shopPanel || friendPanel || financeOpen)}
+            onClick={() => setLogOpen(true)}
+          >
+            <span className="log-trigger-main">
+              <strong>本季日志</strong>
+              {latestLog && <span className="log-preview muted">{latestLog}</span>}
+            </span>
+          </button>
+        </div>
       </div>
 
-      <div className="controls panel">
-        <div className="control-status muted">
-          <span>AP {human.actionPoints}</span>
-          <span>
-            {state.players[state.turnPlayerIndex]?.name}
-            {moving ? ' · 移动中' : spinning ? ' · 拉霸中' : ''}
-          </span>
-        </div>
-        <button
-          className="primary control-spin"
-          disabled={!isHumanTurn || busy || state.autoEnabled}
-          onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
-        >
-          {spinning
-            ? '拉霸中…'
-            : moving
-              ? '行走中…'
-              : `777 拉霸${state.lastDice ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
-        </button>
+      <div className="controls panel controls-actions">
         <div className="control-secondary">
           <button
             disabled={!isHumanTurn || busy || human.actionPoints <= 0}
@@ -279,24 +376,64 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           >
             好友
           </button>
-          <button
-            disabled={!isHumanTurn || busy}
-            onClick={() => dispatch({ type: 'END_TURN' })}
-          >
-            <span className="btn-full">结束回合</span>
-            <span className="btn-short">结束</span>
-          </button>
-          {!isHumanTurn && !moving && !spinning && (
-            <button className="primary" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
-              推进 AI
-            </button>
-          )}
         </div>
+      </div>
+
+      <div className="controls panel controls-spin">
+        {(() => {
+          const canRoll =
+            isHumanTurn && !busy && !state.autoEnabled && !state.turnRolled
+          const canEnd =
+            isHumanTurn && !busy && !state.autoEnabled && state.turnRolled
+          const pushAi = !isHumanTurn && !moving && !spinning && !busy
+
+          if (pushAi) {
+            return (
+              <button className="primary control-spin" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
+                推进 AI
+              </button>
+            )
+          }
+
+          if (canEnd) {
+            return (
+              <button
+                className="primary control-spin"
+                onClick={() => dispatch({ type: 'END_TURN' })}
+              >
+                结束回合
+              </button>
+            )
+          }
+
+          return (
+            <button
+              className="primary control-spin"
+              disabled={!canRoll}
+              onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
+            >
+              {spinning
+                ? '拉霸中…'
+                : moving
+                  ? '行走中…'
+                  : busy
+                    ? '行动中…'
+                    : `777 拉霸${state.lastDice && !state.turnRolled ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
+            </button>
+          )
+        })()}
       </div>
 
       {state.pendingEvent && (() => {
         const ev = getEvent(state.pendingEvent!.eventId)
-        const cash = state.players.find((p) => p.id === state.pendingEvent!.playerId)?.cash ?? 0
+        const actorId = state.pendingEvent!.playerId
+        const cash = state.players.find((p) => p.id === actorId)?.cash ?? 0
+        const resolveChoice = (choiceId: string) => {
+          dispatchTaste(state.pendingEvent!.title, 'event', {
+            type: 'RESOLVE_EVENT_CHOICE',
+            choiceId,
+          }, actorId)
+        }
         return (
           <div className="modal">
             <div className="modal-card panel">
@@ -315,7 +452,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       className={ch.id === 'accept' || ch.id === 'raise' ? 'primary' : undefined}
                       disabled={broke}
                       title={broke ? `现金不足（需约 ${cost} 万）` : undefined}
-                      onClick={() => dispatch({ type: 'RESOLVE_EVENT_CHOICE', choiceId: ch.id })}
+                      onClick={() => resolveChoice(ch.id)}
                     >
                       {ch.label}
                       {broke ? '（现金不足）' : ''}
@@ -324,12 +461,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 })}
                 {ev &&
                   ev.choices.every((ch) => !canAffordChoice(cash, ch.effects)) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        dispatch({ type: 'RESOLVE_EVENT_CHOICE', choiceId: '__skip__' })
-                      }
-                    >
+                    <button type="button" onClick={() => resolveChoice('__skip__')}>
                       手头太紧，空手过关
                     </button>
                   )}
@@ -339,46 +471,82 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         )
       })()}
 
-      {state.pendingLocation && !state.pendingDecision && (
+      {eventTaste && (
+        <div className="modal event-taste-modal">
+          <div className="modal-card panel event-taste-card">
+            <p className="slot-event-hint muted">结果</p>
+            <h3>{eventTaste.title}</h3>
+            {eventTaste.lines.length === 0 ? (
+              <p className="muted">本事件没有直接数值变化。</p>
+            ) : (
+              <ul className="event-taste-list">
+                {eventTaste.lines.map((line) => (
+                  <li key={`${line.label}-${line.delta}`} className={`taste-${line.tone}`}>
+                    <span>{line.label}</span>
+                    <strong>{line.delta}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {eventTaste.note ? <p className="event-taste-note">{eventTaste.note}</p> : null}
+          </div>
+        </div>
+      )}
+
+      {state.pendingLocation && !state.pendingDecision && !eventTaste && (
         <div className="modal">
           <div className="modal-card panel location-card">
             <p className="slot-event-hint">落点 · {state.pendingLocation.label}</p>
-            {state.pendingLocation.spaceKind === 'vacant' && (
+            {state.pendingVisitShop && (
+              <VisitPanel state={state} human={human} dispatch={dispatch} />
+            )}
+            {!state.pendingVisitShop && state.pendingLocation.spaceKind === 'vacant' && (
               <>
                 <h3>空地待售</h3>
-                <p>花 {VACANT_COST} 万开店；没人脉可加 {VACANT_HIRE_EXTRA} 万雇临时店员。</p>
-                {human.relations.filter((r) => r.status !== 'broken').length === 0 && (
+                <p>花 {VACANT_COST} 万开店；没人脉可加 {VACANT_HIRE_EXTRA} 万雇临时店长。</p>
+                {human.relations.filter((r) => canAssignToShop(human, r.id)).length === 0 && (
                   <p className="muted">
-                    暂无人脉可托管。可雇临时店员，或先去事件 / 事务所结识后再来。
+                    暂无空闲人选。可雇临时店长，或先结识/等人进修完成后再来。
                   </p>
                 )}
                 <div className="shop-list">
                   {human.relations
-                    .filter((r) => r.status !== 'broken')
+                    .filter((r) => canAssignToShop(human, r.id))
                     .map((r) => (
                       <button
                         key={r.id}
                         className="shop-item"
                         disabled={human.cash + 1e-9 < VACANT_COST}
                         onClick={() =>
-                          dispatch({ type: 'LOCATION_BUY_VACANT', relationId: r.id })
+                          dispatchTaste('空地开店', 'location', {
+                            type: 'LOCATION_BUY_VACANT',
+                            relationId: r.id,
+                          })
                         }
                       >
                         <strong>{r.name}</strong>
-                        <span>好感 {r.score}</span>
-                        <em>购置并由其经营</em>
+                        <span>
+                          好感 {r.score}
+                          {r.skills.length
+                            ? ` · ${r.skills.map(skillLabel).join('、')}`
+                            : ''}
+                        </span>
+                        <em>购置并由其任店长</em>
                       </button>
                     ))}
                   <button
                     className="shop-item"
                     disabled={human.cash + 1e-9 < VACANT_COST + VACANT_HIRE_EXTRA}
                     onClick={() =>
-                      dispatch({ type: 'LOCATION_BUY_VACANT', relationId: '__hire__' })
+                      dispatchTaste('空地开店', 'location', {
+                        type: 'LOCATION_BUY_VACANT',
+                        relationId: '__hire__',
+                      })
                     }
                   >
-                    <strong>雇临时店员开店</strong>
+                    <strong>雇临时店长开店</strong>
                     <span>{(VACANT_COST + VACANT_HIRE_EXTRA).toFixed(2)} 万</span>
-                    <em>自动结识一名店员当经营者</em>
+                    <em>自动结识一人当店长</em>
                   </button>
                 </div>
                 <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>走开</button>
@@ -393,7 +561,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <button
                       key={item.id}
                       className="shop-item"
-                      onClick={() => dispatch({ type: 'LOCATION_BUY_ITEM', itemId: item.id })}
+                      onClick={() =>
+                        dispatchTaste(`买「${item.name}」`, 'location', {
+                          type: 'LOCATION_BUY_ITEM',
+                          itemId: item.id,
+                        })
+                      }
                     >
                       <strong>{item.name}</strong>
                       <span>{item.cost} 万</span>
@@ -463,7 +636,13 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           key={kind}
                           className="primary"
                           disabled={human.cash + 1e-9 < OFFICE_RECOMMEND_COST}
-                          onClick={() => dispatch({ type: 'OFFICE_RECOMMEND', kind })}
+                          onClick={() =>
+                            dispatchTaste(
+                              kind === 'network' ? '事务所推荐人脉' : '事务所推荐恋人',
+                              'location',
+                              { type: 'OFFICE_RECOMMEND', kind },
+                            )
+                          }
                         >
                           {kind === 'network' ? '人脉' : '恋人'}
                         </button>
@@ -513,7 +692,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         className="primary"
                         disabled={human.cash + 1e-9 < OFFICE_UP_COST}
                         onClick={() =>
-                          dispatch({
+                          dispatchTaste('事务所升温', 'location', {
                             type: 'OFFICE_ADJUST',
                             ownerId: officeUi.ownerId,
                             relationId: officeUi.relationId,
@@ -527,7 +706,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       <button
                         disabled={human.cash + 1e-9 < OFFICE_DOWN_COST}
                         onClick={() =>
-                          dispatch({
+                          dispatchTaste('事务所降温', 'location', {
                             type: 'OFFICE_ADJUST',
                             ownerId: officeUi.ownerId,
                             relationId: officeUi.relationId,
@@ -590,7 +769,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                             className="shop-item"
                             disabled={human.cash + 1e-9 < OFFICE_POACH_COST}
                             onClick={() =>
-                              dispatch({
+                              dispatchTaste(`挖角「${rel.name}」`, 'location', {
                                 type: 'OFFICE_POACH',
                                 targetPlayerId: officeUi.targetPlayerId,
                                 relationId: rel.id,
@@ -617,7 +796,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 {manageUi.step === 'menu' && (
                   <>
                     <h3>经营区</h3>
-                    <p className="muted">升级单店（0.2 万）或免费更换经营者。</p>
+                    <p className="muted">升级店铺，或调整编制（加人 / 走人 / 换店长）。</p>
                     <div className="shop-list">
                       <button
                         className="shop-item"
@@ -631,11 +810,11 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       <button
                         className="shop-item"
                         disabled={!human.shops.length}
-                        onClick={() => setManageUi({ step: 'rebindShop' })}
+                        onClick={() => setManageUi({ step: 'staffShop' })}
                       >
-                        <strong>更换经营者</strong>
+                        <strong>编制管理</strong>
                         <span>免费</span>
-                        <em>把店交给别人</em>
+                        <em>加人 · 走人 · 换店长</em>
                       </button>
                     </div>
                     <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>下次再说</button>
@@ -645,45 +824,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   <>
                     <h3>升级哪家店？</h3>
                     <div className="shop-list">
-                      {human.shops.map((shop) => (
-                        <button
-                          key={shop.id}
-                          className="shop-item"
-                          disabled={human.cash + 1e-9 < 0.2}
-                          onClick={() =>
-                            dispatch({ type: 'LOCATION_UPGRADE_SHOP', shopId: shop.id })
-                          }
-                        >
-                          <strong>{shop.name}</strong>
-                          <span>Lv.{shop.level}</span>
-                          <em>CF {shop.baseCashflow}</em>
-                        </button>
-                      ))}
-                    </div>
-                    <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
-                  </>
-                )}
-                {manageUi.step === 'rebindShop' && (
-                  <>
-                    <h3>换绑：选店铺</h3>
-                    <div className="shop-list">
                       {human.shops.map((shop) => {
-                        const op = human.relations.find((r) => r.id === shop.operatorRelationId)
+                        const cost = upgradeCostFor(shop)
+                        const def = shopTypeById(shop.typeId)
+                        const bd = shopBreakdown(shop, human.relations)
                         return (
                           <button
                             key={shop.id}
                             className="shop-item"
+                            disabled={human.cash + 1e-9 < cost}
                             onClick={() =>
-                              setManageUi({
-                                step: 'rebindOp',
+                              dispatchTaste(`升级「${shop.name}」`, 'location', {
+                                type: 'LOCATION_UPGRADE_SHOP',
                                 shopId: shop.id,
-                                shopName: shop.name,
                               })
                             }
                           >
                             <strong>{shop.name}</strong>
-                            <span>现经营者</span>
-                            <em>{op?.name ?? '无人'}</em>
+                            <span>
+                              {def?.label ?? shop.typeId} · Lv.{shop.level} · 编制{' '}
+                              {shop.staffIds.length}/{shopCapacity(shop.level)}
+                            </span>
+                            <em>
+                              {cost} 万 · 净 {bd.net.toFixed(2)}
+                            </em>
                           </button>
                         )
                       })}
@@ -691,54 +855,229 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
                   </>
                 )}
-                {manageUi.step === 'rebindOp' && (
+                {manageUi.step === 'staffShop' && (
                   <>
-                    <h3>「{manageUi.shopName}」交给谁？</h3>
+                    <h3>选店铺调编制</h3>
                     <div className="shop-list">
-                      {human.relations
-                        .filter((r) => r.status !== 'broken')
-                        .map((r) => (
+                      {human.shops.map((shop) => {
+                        const mgr = human.relations.find((r) => r.id === shop.managerId)
+                        return (
                           <button
-                            key={r.id}
+                            key={shop.id}
                             className="shop-item"
                             onClick={() =>
-                              dispatch({
-                                type: 'LOCATION_REBIND_OPERATOR',
-                                shopId: manageUi.shopId,
-                                relationId: r.id,
+                              setManageUi({
+                                step: 'staffHub',
+                                shopId: shop.id,
+                                shopName: shop.name,
                               })
                             }
                           >
-                            <strong>{r.name}</strong>
-                            <span>好感 {r.score}</span>
-                            <em>{relationStatusLabel(r.status)}</em>
+                            <strong>{shop.name}</strong>
+                            <span>
+                              {shop.staffIds.length}/{shopCapacity(shop.level)} 人
+                            </span>
+                            <em>店长：{mgr?.name ?? '—'}</em>
                           </button>
-                        ))}
+                        )
+                      })}
                     </div>
-                    <button onClick={() => setManageUi({ step: 'rebindShop' })}>返回</button>
+                    <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
                   </>
                 )}
+                {manageUi.step === 'staffHub' && (
+                  <>
+                    <h3>「{manageUi.shopName}」编制</h3>
+                    <div className="shop-list">
+                      <button
+                        className="shop-item"
+                        onClick={() =>
+                          setManageUi({
+                            step: 'addStaff',
+                            shopId: manageUi.shopId,
+                            shopName: manageUi.shopName,
+                          })
+                        }
+                      >
+                        <strong>加人</strong>
+                        <span>空闲好友</span>
+                        <em>进店当店员</em>
+                      </button>
+                      <button
+                        className="shop-item"
+                        onClick={() =>
+                          setManageUi({
+                            step: 'removeStaff',
+                            shopId: manageUi.shopId,
+                            shopName: manageUi.shopName,
+                          })
+                        }
+                      >
+                        <strong>走人</strong>
+                        <span>离店</span>
+                        <em>0 人将关店卖出</em>
+                      </button>
+                      <button
+                        className="shop-item"
+                        onClick={() =>
+                          setManageUi({
+                            step: 'setManager',
+                            shopId: manageUi.shopId,
+                            shopName: manageUi.shopName,
+                          })
+                        }
+                      >
+                        <strong>换店长</strong>
+                        <span>店内人选</span>
+                        <em>任命店长</em>
+                      </button>
+                    </div>
+                    <button onClick={() => setManageUi({ step: 'staffShop' })}>返回</button>
+                  </>
+                )}
+                {manageUi.step === 'addStaff' &&
+                  (() => {
+                    const shop = human.shops.find((s) => s.id === manageUi.shopId)
+                    const free = human.relations.filter((r) => canAssignToShop(human, r.id))
+                    return (
+                      <>
+                        <h3>「{manageUi.shopName}」加人</h3>
+                        {!shopHasCapacity(shop!) && <p className="muted">编制已满。</p>}
+                        <div className="shop-list">
+                          {free.map((r) => (
+                            <button
+                              key={r.id}
+                              className="shop-item"
+                              disabled={!shop || !shopHasCapacity(shop)}
+                              onClick={() =>
+                                dispatchTaste(`「${r.name}」进店`, 'location', {
+                                  type: 'SHOP_ADD_STAFF',
+                                  shopId: manageUi.shopId,
+                                  relationId: r.id,
+                                })
+                              }
+                            >
+                              <strong>{r.name}</strong>
+                              <span>
+                                好感 {r.score}
+                                {r.skills.length
+                                  ? ` · ${r.skills.map(skillLabel).join('、')}`
+                                  : ''}
+                              </span>
+                              <em>{occupationLabel(human, r)}</em>
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() =>
+                            setManageUi({
+                              step: 'staffHub',
+                              shopId: manageUi.shopId,
+                              shopName: manageUi.shopName,
+                            })
+                          }
+                        >
+                          返回
+                        </button>
+                      </>
+                    )
+                  })()}
+                {manageUi.step === 'removeStaff' &&
+                  (() => {
+                    const shop = human.shops.find((s) => s.id === manageUi.shopId)
+                    const staff = (shop?.staffIds ?? [])
+                      .map((id) => human.relations.find((r) => r.id === id))
+                      .filter((r): r is NonNullable<typeof r> => Boolean(r))
+                    return (
+                      <>
+                        <h3>「{manageUi.shopName}」走人</h3>
+                        <div className="shop-list">
+                          {staff.map((r) => (
+                            <button
+                              key={r.id}
+                              className="shop-item"
+                              onClick={() =>
+                                dispatchTaste(`「${r.name}」离店`, 'location', {
+                                  type: 'SHOP_REMOVE_STAFF',
+                                  shopId: manageUi.shopId,
+                                  relationId: r.id,
+                                })
+                              }
+                            >
+                              <strong>{r.name}</strong>
+                              <span>
+                                {shop?.managerId === r.id ? '店长' : '店员'} · 好感 {r.score}
+                              </span>
+                              <em>{staff.length <= 1 ? '将关店卖出' : '离店'}</em>
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() =>
+                            setManageUi({
+                              step: 'staffHub',
+                              shopId: manageUi.shopId,
+                              shopName: manageUi.shopName,
+                            })
+                          }
+                        >
+                          返回
+                        </button>
+                      </>
+                    )
+                  })()}
+                {manageUi.step === 'setManager' &&
+                  (() => {
+                    const shop = human.shops.find((s) => s.id === manageUi.shopId)
+                    const staff = (shop?.staffIds ?? [])
+                      .map((id) => human.relations.find((r) => r.id === id))
+                      .filter((r): r is NonNullable<typeof r> => Boolean(r))
+                    return (
+                      <>
+                        <h3>「{manageUi.shopName}」换店长</h3>
+                        <div className="shop-list">
+                          {staff.map((r) => (
+                            <button
+                              key={r.id}
+                              className="shop-item"
+                              disabled={shop?.managerId === r.id}
+                              onClick={() =>
+                                dispatchTaste(`任命「${r.name}」店长`, 'location', {
+                                  type: 'SHOP_SET_MANAGER',
+                                  shopId: manageUi.shopId,
+                                  relationId: r.id,
+                                })
+                              }
+                            >
+                              <strong>{r.name}</strong>
+                              <span>好感 {r.score}</span>
+                              <em>{shop?.managerId === r.id ? '现任店长' : '任命'}</em>
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() =>
+                            setManageUi({
+                              step: 'staffHub',
+                              shopId: manageUi.shopId,
+                              shopName: manageUi.shopName,
+                            })
+                          }
+                        >
+                          返回
+                        </button>
+                      </>
+                    )
+                  })()}
               </>
             )}
             {state.pendingLocation.spaceKind === 'casino' && (
-              <>
-                <h3>赌场</h3>
-                <p>约 45% 概率赢回双倍（净赚一注），否则输掉赌注。</p>
-                <div className="shop-list">
-                  {[0.2, 0.5, 1.0].map((bet) => (
-                    <button
-                      key={bet}
-                      className="shop-item"
-                      onClick={() => dispatch({ type: 'LOCATION_GAMBLE', bet })}
-                    >
-                      <strong>押 {bet} 万</strong>
-                      <span>搏一把</span>
-                      <em>赢则 +{bet} 万，输则 -{bet} 万</em>
-                    </button>
-                  ))}
-                </div>
-                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>不赌了</button>
-              </>
+              <CasinoPanel
+                state={state}
+                human={human}
+                dispatch={dispatch}
+                dispatchTaste={dispatchTaste}
+              />
             )}
             {state.pendingLocation.spaceKind === 'park' && (
               <>
@@ -747,7 +1086,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <div className="shop-list">
                   <button
                     className="shop-item"
-                    onClick={() => dispatch({ type: 'LOCATION_PARK_REST' })}
+                    onClick={() =>
+                      dispatchTaste('公园休息', 'location', { type: 'LOCATION_PARK_REST' })
+                    }
                   >
                     <strong>休息回血</strong>
                     <span>+{PARK_REST_CASH} 万</span>
@@ -760,7 +1101,10 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         key={r.id}
                         className="shop-item"
                         onClick={() =>
-                          dispatch({ type: 'LOCATION_PARK_CHAT', relationId: r.id })
+                          dispatchTaste(`公园小坐 · ${r.name}`, 'location', {
+                            type: 'LOCATION_PARK_CHAT',
+                            relationId: r.id,
+                          })
                         }
                       >
                         <strong>与 {r.name} 小坐</strong>
@@ -773,44 +1117,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               </>
             )}
             {state.pendingLocation.spaceKind === 'invest' && (
-              <>
-                <h3>投资所</h3>
-                <p className="muted">买入标的或按成本 {Math.round(INVEST_SELL_RATIO * 100)}% 卖出。</p>
-                <div className="shop-list">
-                  {investOffersFor(human.track).map((o) => {
-                    const cost =
-                      human.trait === 'investDiscount' ? Math.round(o.cost * 90) / 100 : o.cost
-                    return (
-                      <button
-                        key={o.id}
-                        className="shop-item"
-                        disabled={human.cash + 1e-9 < cost}
-                        onClick={() =>
-                          dispatch({ type: 'LOCATION_BUY_INVEST', offerId: o.id })
-                        }
-                      >
-                        <strong>买 {o.name}</strong>
-                        <span>{cost} 万</span>
-                        <em>季现金流 +{o.cashflow}</em>
-                      </button>
-                    )
-                  })}
-                  {human.investments.map((inv) => (
-                    <button
-                      key={inv.id}
-                      className="shop-item"
-                      onClick={() =>
-                        dispatch({ type: 'LOCATION_SELL_INVEST', investmentId: inv.id })
-                      }
-                    >
-                      <strong>卖 {inv.name}</strong>
-                      <span>+{Math.round(inv.cost * INVEST_SELL_RATIO * 100) / 100} 万</span>
-                      <em>回笼</em>
-                    </button>
-                  ))}
-                </div>
-                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>离开</button>
-              </>
+              <ExchangePanel state={state} human={human} dispatch={dispatch} dispatchTaste={dispatchTaste} />
             )}
           </div>
         </div>
@@ -841,12 +1148,14 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         >
                           <strong>{r.name}</strong>
                           <span>
-                            {relationKindLabel(r.kind)} · {relationStatusLabel(r.status)} · 好感{' '}
+                            {occupationLabel(human, r)} · {relationKindLabel(r.kind)} · 好感{' '}
                             {r.score}
                             {willBreakNextDecay(r) ? ' · 下回合可能破裂' : ''}
                           </span>
                           {willBreakNextDecay(r) ? (
                             <em className="warn">预警</em>
+                          ) : r.training ? (
+                            <em>进修中</em>
                           ) : r.locked ? (
                             <em>已锁定</em>
                           ) : null}
@@ -872,31 +1181,112 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     </>
                   )
                 }
-                const operated = human.shops.filter((s) => s.operatorRelationId === rel.id)
+                const staffed = human.shops.filter((s) => s.staffIds.includes(rel.id))
                 return (
                   <>
                     <h3>{rel.name}</h3>
                     <ul className="shop-detail-list">
+                      <li>职业：{occupationLabel(human, rel)}</li>
                       <li>类型：{relationKindLabel(rel.kind)}</li>
                       <li>状态：{relationStatusLabel(rel.status)}</li>
                       <li>好感：{rel.score}</li>
                       <li>锁定：{rel.locked ? '是（较难被挖走）' : '否'}</li>
+                      <li>
+                        技能：
+                        {rel.skills.length
+                          ? rel.skills.map(skillLabel).join('、')
+                          : '无'}
+                        （{rel.skills.length}/3）
+                      </li>
+                      {rel.training ? (
+                        <li>
+                          进修中：{skillLabel(rel.training.skillId)} · 剩余{' '}
+                          {rel.training.turnsLeft} 回合 · 成功率{' '}
+                          {Math.round(rel.training.successChance * 100)}%
+                        </li>
+                      ) : null}
                       {willBreakNextDecay(rel) ? (
                         <li className="warn">下回合若不维护，关系可能破裂。</li>
                       ) : null}
                       <li>
-                        经营店铺：
-                        {operated.length
-                          ? operated.map((s) => `${s.name}（Lv.${s.level}）`).join('、')
-                          : '无'}
+                        所属店铺：
+                        {staffed.length
+                          ? staffed
+                              .map((s) =>
+                                s.managerId === rel.id
+                                  ? `${s.name}（店长）`
+                                  : `${s.name}（店员）`,
+                              )
+                              .join('、')
+                          : '无（自由人）'}
                       </li>
                     </ul>
                     <div className="modal-actions">
-                      <button className="primary" onClick={() => setFriendPanel({ step: 'list' })}>
-                        返回列表
+                      <button
+                        className="primary"
+                        disabled={Boolean(rel.training) || staffed.length > 0 || rel.status === 'broken'}
+                        onClick={() =>
+                          setFriendPanel({ step: 'train', relationId: rel.id })
+                        }
+                      >
+                        去学习
                       </button>
+                      <button onClick={() => setFriendPanel({ step: 'list' })}>返回列表</button>
                       <button onClick={() => setFriendPanel(null)}>关闭</button>
                     </div>
+                    {staffed.length > 0 ? (
+                      <p className="muted">在店上班时无法进修，请先在经营区走人。</p>
+                    ) : null}
+                  </>
+                )
+              })()}
+            {friendPanel.step === 'train' &&
+              (() => {
+                const rel = human.relations.find((r) => r.id === friendPanel.relationId)
+                if (!rel) {
+                  return (
+                    <>
+                      <h3>人物不存在</h3>
+                      <button onClick={() => setFriendPanel({ step: 'list' })}>返回</button>
+                    </>
+                  )
+                }
+                return (
+                  <>
+                    <h3>「{rel.name}」去学习</h3>
+                    <p className="muted">扣现金，占用你自己的回合；成功才写入技能（最多 3 个）。</p>
+                    <div className="shop-list">
+                      {SKILLS.map((sk) => {
+                        const err = canLearnSkill(rel, sk.id)
+                        const cantCash = human.cash + 1e-9 < sk.cost
+                        return (
+                          <button
+                            key={sk.id}
+                            className="shop-item"
+                            disabled={Boolean(err) || cantCash}
+                            onClick={() => {
+                              dispatchTaste(`进修「${sk.name}」`, 'decision', {
+                                type: 'TRAIN_START',
+                                relationId: rel.id,
+                                skillId: sk.id,
+                              })
+                              setFriendPanel({ step: 'detail', relationId: rel.id })
+                            }}
+                          >
+                            <strong>{sk.name}</strong>
+                            <span>
+                              {sk.cost} 万 · {sk.turns} 回合 · {Math.round(sk.successChance * 100)}%
+                            </span>
+                            <em>{err ?? (cantCash ? '现金不足' : '报名')}</em>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <button
+                      onClick={() => setFriendPanel({ step: 'detail', relationId: rel.id })}
+                    >
+                      返回
+                    </button>
                   </>
                 )
               })()}
@@ -916,8 +1306,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 ) : (
                   <div className="shop-list">
                     {human.shops.map((shop) => {
-                      const op = human.relations.find((r) => r.id === shop.operatorRelationId)
-                      const cf = shopCashflow(shop, human.relations)
+                      const mgr = human.relations.find((r) => r.id === shop.managerId)
+                      const bd = shopBreakdown(shop, human.relations)
+                      const def = shopTypeById(shop.typeId)
                       return (
                         <button
                           key={shop.id}
@@ -926,9 +1317,10 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         >
                           <strong>{shop.name}</strong>
                           <span>
-                            Lv.{shop.level} · 现金流 {cf.toFixed(2)} 万
+                            {def?.label ?? ''} · Lv.{shop.level} · 净 {bd.net.toFixed(2)} 万 ·{' '}
+                            {shop.staffIds.length}/{shopCapacity(shop.level)} 人
                           </span>
-                          <em>经营者：{op?.name ?? '（缺失）'}</em>
+                          <em>店长：{mgr?.name ?? '（缺失）'}</em>
                         </button>
                       )
                     })}
@@ -952,21 +1344,38 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     </>
                   )
                 }
-                const op = human.relations.find((r) => r.id === shop.operatorRelationId)
-                const cf = shopCashflow(shop, human.relations)
+                const mgr = human.relations.find((r) => r.id === shop.managerId)
+                const staffNames = shop.staffIds
+                  .map((id) => human.relations.find((r) => r.id === id)?.name ?? '?')
+                  .join('、')
+                const bd = shopBreakdown(shop, human.relations)
+                const def = shopTypeById(shop.typeId)
                 return (
                   <>
                     <h3>{shop.name}</h3>
                     <ul className="shop-detail-list">
+                      <li>类型：{def?.label ?? shop.typeId}</li>
                       <li>等级：Lv.{shop.level}</li>
-                      <li>基础现金流：{shop.baseCashflow.toFixed(2)} 万</li>
-                      <li>实际现金流：{cf.toFixed(2)} 万（受经营者好感影响）</li>
+                      <li>
+                        编制：{shop.staffIds.length}/{shopCapacity(shop.level)}
+                      </li>
+                      <li>基准营收：{shop.baseRevenue.toFixed(2)} 万/季</li>
+                      <li>经营成本：{shop.operatingCost.toFixed(2)} 万/季</li>
+                      <li>
+                        本期毛营收：{bd.gross.toFixed(2)} · 净额：{bd.net.toFixed(2)} 万
+                        （行情 ×{bd.factor.toFixed(2)}）
+                      </li>
                       <li>账面估值：约 {shopBookValue(shop).toFixed(2)} 万</li>
                       <li>
-                        经营者：
-                        {op
-                          ? `${op.name}（好感 ${op.score} · ${relationStatusLabel(op.status)}）`
-                          : '无（店铺停业）'}
+                        店长：
+                        {mgr
+                          ? `${mgr.name}（好感 ${mgr.score}）`
+                          : '无（应已关店）'}
+                      </li>
+                      <li>员工：{staffNames || '无'}</li>
+                      <li>
+                        技能标签：
+                        {shop.skillTags.map(skillLabel).join('、') || '无'}
                       </li>
                     </ul>
                     <div className="modal-actions">
@@ -1030,7 +1439,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           className="shop-item"
                           disabled={broke}
                           title={broke ? '现金不足' : undefined}
-                          onClick={() => dispatch({ type: 'DATE_CONFIRM_VENUE', venueId: v.id })}
+                          onClick={() =>
+                            dispatchTaste(`约会 · ${v.name}`, 'date', {
+                              type: 'DATE_CONFIRM_VENUE',
+                              venueId: v.id,
+                            })
+                          }
                         >
                           <strong>{v.name}</strong>
                           <span>
@@ -1052,7 +1466,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         )
       })()}
 
-      {state.pendingDecision && (
+      {state.pendingDecision && !eventTaste && (
         <div className="modal">
           <div className="modal-card panel">
             {state.pendingDecision.type === 'promote' && (
@@ -1067,7 +1481,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   ）。进入外圈将获得启动金 +{INVESTOR_START_BONUS} 万。
                 </p>
                 <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'PROMOTE_TO_INVESTOR' })}>
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      dispatchTaste('晋级投资人圈', 'decision', { type: 'PROMOTE_TO_INVESTOR' })
+                    }
+                  >
                     晋级（+{INVESTOR_START_BONUS} 万）
                   </button>
                   <button onClick={() => dispatch({ type: 'SKIP_PROMOTE' })}>暂留打工人圈</button>
@@ -1079,10 +1498,27 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <h3>谈婚论嫁</h3>
                 <p>要结婚吗？会花 0.5 万，并让其他恋情降温。</p>
                 <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'CONFIRM_MARRIAGE', accept: true })}>
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      dispatchTaste('结婚', 'decision', {
+                        type: 'CONFIRM_MARRIAGE',
+                        accept: true,
+                      })
+                    }
+                  >
                     结婚
                   </button>
-                  <button onClick={() => dispatch({ type: 'CONFIRM_MARRIAGE', accept: false })}>再等等</button>
+                  <button
+                    onClick={() =>
+                      dispatchTaste('暂缓婚事', 'decision', {
+                        type: 'CONFIRM_MARRIAGE',
+                        accept: false,
+                      })
+                    }
+                  >
+                    再等等
+                  </button>
                 </div>
               </>
             )}
@@ -1093,10 +1529,27 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   花费 {state.pendingDecision.cost} 万，预期现金流 +{state.pendingDecision.cashflow}
                 </p>
                 <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'CONFIRM_BIG_SPEND', accept: true })}>
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      dispatchTaste('确认大额买入', 'decision', {
+                        type: 'CONFIRM_BIG_SPEND',
+                        accept: true,
+                      })
+                    }
+                  >
                     买入
                   </button>
-                  <button onClick={() => dispatch({ type: 'CONFIRM_BIG_SPEND', accept: false })}>放弃</button>
+                  <button
+                    onClick={() =>
+                      dispatchTaste('放弃大额购入', 'decision', {
+                        type: 'CONFIRM_BIG_SPEND',
+                        accept: false,
+                      })
+                    }
+                  >
+                    放弃
+                  </button>
                 </div>
               </>
             )}
@@ -1115,10 +1568,27 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   )
                 })()}
                 <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'CONFIRM_POACH', accept: false })}>
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      dispatchTaste('挽留关系', 'decision', {
+                        type: 'CONFIRM_POACH',
+                        accept: false,
+                      })
+                    }
+                  >
                     挽留
                   </button>
-                  <button onClick={() => dispatch({ type: 'CONFIRM_POACH', accept: true })}>放人</button>
+                  <button
+                    onClick={() =>
+                      dispatchTaste('放人', 'decision', {
+                        type: 'CONFIRM_POACH',
+                        accept: true,
+                      })
+                    }
+                  >
+                    放人
+                  </button>
                 </div>
               </>
             )}
@@ -1126,7 +1596,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               <>
                 <h3>现金流断裂</h3>
                 <p>需要记账负债 {state.pendingDecision.amount} 万并可能变卖投资。</p>
-                <button className="primary" onClick={() => dispatch({ type: 'RESOLVE_BANKRUPT' })}>
+                <button
+                  className="primary"
+                  onClick={() =>
+                    dispatchTaste('破产处理', 'decision', { type: 'RESOLVE_BANKRUPT' })
+                  }
+                >
                   处理
                 </button>
               </>
@@ -1135,17 +1610,702 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         </div>
       )}
 
-      <details ref={logRef} className="log panel collapsible">
-        <summary className="log-summary">
-          <strong>本季日志</strong>
-          {latestLog && <span className="log-preview muted">{latestLog}</span>}
-        </summary>
-        <ul>
-          {recentLogs.map((l) => (
-            <li key={l.id}>{l.text}</li>
-          ))}
-        </ul>
-      </details>
+      {logOpen && (
+        <div className="modal" role="dialog" aria-modal="true" aria-label="本季日志">
+          <div className="modal-card panel log-modal-card">
+            <h3>本季日志</h3>
+            <ul className="log-modal-list">
+              {recentLogs.length === 0 && <li className="muted">暂无记录</li>}
+              {recentLogs.map((l) => (
+                <li key={l.id}>{l.text}</li>
+              ))}
+            </ul>
+            <div className="modal-actions">
+              <button type="button" className="primary" onClick={() => setLogOpen(false)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function CasinoPanel({
+  state,
+  human,
+  dispatch,
+  dispatchTaste,
+}: {
+  state: GameState
+  human: PlayerState
+  dispatch: (a: GameAction) => void
+  dispatchTaste: (
+    title: string,
+    waitFor: 'event' | 'location' | 'date' | 'decision',
+    action: GameAction,
+  ) => void
+}) {
+  const c = state.pendingCasino
+  const bets = [...CASINO_BETS]
+
+  if (!c || c.screen === 'lobby') {
+    return (
+      <>
+        <h3>赌场大厅</h3>
+        <p className="muted">真规则桌台。可连玩，点离开才结束落点。</p>
+        <div className="shop-list">
+          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'baccarat' })}>
+            <strong>百家乐</strong>
+            <span>庄抽水 5%</span>
+            <em>闲 / 庄 / 和</em>
+          </button>
+          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'dice' })}>
+            <strong>骰子</strong>
+            <span>Pass / Don't Pass</span>
+            <em>可加 Field</em>
+          </button>
+          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'blackjack' })}>
+            <strong>21 点</strong>
+            <span>BJ 赔 3:2 · S17</span>
+            <em>可加倍 / 分牌 / 保险</em>
+          </button>
+        </div>
+        <button
+          onClick={() =>
+            dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })
+          }
+        >
+          离开赌场
+        </button>
+      </>
+    )
+  }
+
+  if (c.screen === 'baccarat') {
+    const r = c.baccarat
+    const settled = r?.phase === 'settled'
+    const betting = !r || r.phase === 'betting' || settled
+    return (
+      <>
+        <h3>百家乐</h3>
+        {r && r.phase !== 'betting' && (
+          <ul className="shop-detail-list">
+            <li>闲：{r.playerCards.map(cardLabel).join(' ')} → {r.playerPoint}</li>
+            <li>庄：{r.bankerCards.map(cardLabel).join(' ')} → {r.bankerPoint}</li>
+            <li>{r.message}</li>
+          </ul>
+        )}
+        {betting && (
+          <>
+            <p className="muted">选边与注码（现金 {human.cash.toFixed(2)} 万）</p>
+            {(['player', 'banker', 'tie'] as const).map((kind) => (
+              <div key={kind} className="shop-list" style={{ marginBottom: 8 }}>
+                {bets.map((amt) => (
+                  <button
+                    key={amt}
+                    className="shop-item"
+                    disabled={human.cash + 1e-9 < amt}
+                    onClick={() =>
+                      dispatch({ type: 'CASINO_BACARAT_BET', betKind: kind, amount: amt })
+                    }
+                  >
+                    <strong>{kind === 'player' ? '闲' : kind === 'banker' ? '庄' : '和'}</strong>
+                    <span>{amt} 万</span>
+                    <em>{kind === 'banker' ? '0.95:1' : kind === 'tie' ? '8:1' : '1:1'}</em>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+        <div className="modal-actions">
+          <button onClick={() => dispatch({ type: 'CASINO_LOBBY' })}>回大厅</button>
+          <button onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}>
+            离开
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  if (c.screen === 'dice') {
+    const d = c.dice
+    const needRoll = d?.phase === 'point'
+    const betting = !d || d.phase === 'betting' || d.phase === 'settled'
+    return (
+      <>
+        <h3>骰子（Craps 精简）</h3>
+        {d && d.phase !== 'betting' && (
+          <ul className="shop-detail-list">
+            {d.lastDice && <li>骰面：{d.lastDice[0]} + {d.lastDice[1]} = {d.lastTotal}</li>}
+            {d.point != null && d.phase === 'point' && <li>Point：{d.point}</li>}
+            <li>{d.message}</li>
+          </ul>
+        )}
+        {needRoll && (
+          <button
+            className="primary"
+            data-testid="dice-roll"
+            onClick={() => dispatch({ type: 'CASINO_DICE_ROLL' })}
+          >
+            再掷
+          </button>
+        )}
+        {betting && (
+          <>
+            <p className="muted">Pass / Don't Pass；可选同注 Field</p>
+            {(['pass', 'dontPass'] as const).map((line) => (
+              <div key={line} className="shop-list" style={{ marginBottom: 8 }}>
+                {bets.map((amt) => (
+                  <button
+                    key={amt}
+                    className="shop-item"
+                    data-testid={`dice-${line}-${amt}`}
+                    disabled={human.cash + 1e-9 < amt}
+                    onClick={() =>
+                      dispatch({ type: 'CASINO_DICE_BET', line, amount: amt, fieldAmount: 0 })
+                    }
+                  >
+                    <strong>{line === 'pass' ? 'Pass' : "Don't Pass"}</strong>
+                    <span>{amt} 万</span>
+                    <em>无 Field</em>
+                  </button>
+                ))}
+                {bets.map((amt) => (
+                  <button
+                    key={`${amt}-f`}
+                    className="shop-item"
+                    disabled={human.cash + 1e-9 < amt * 2}
+                    onClick={() =>
+                      dispatch({
+                        type: 'CASINO_DICE_BET',
+                        line,
+                        amount: amt,
+                        fieldAmount: amt,
+                      })
+                    }
+                  >
+                    <strong>{line === 'pass' ? 'Pass' : "Don't Pass"}+Field</strong>
+                    <span>{amt}+{amt}</span>
+                    <em>附加 Field</em>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+        <div className="modal-actions">
+          <button disabled={needRoll} onClick={() => dispatch({ type: 'CASINO_LOBBY' })}>
+            回大厅
+          </button>
+          <button
+            disabled={needRoll}
+            onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}
+          >
+            离开
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  // blackjack
+  const bj = c.blackjack
+  const betting = !bj || bj.phase === 'betting' || bj.phase === 'settled'
+  return (
+    <>
+      <h3>21 点</h3>
+      <div data-testid="bj-phase" data-phase={bj?.phase ?? 'none'} hidden />
+      {bj && bj.phase !== 'betting' && (
+        <ul className="shop-detail-list">
+          <li>
+            庄：{formatHand(bj.dealerCards, bj.dealerHoleHidden)}
+            {!bj.dealerHoleHidden
+              ? ` → ${blackjackTotal(bj.dealerCards).total}`
+              : ''}
+          </li>
+          {bj.playerHands.map((h, i) => (
+            <li key={i}>
+              你{bj.playerHands.length > 1 ? ` #${i + 1}` : ''}：
+              {h.cards.map(cardLabel).join(' ')} → {blackjackTotal(h.cards).total}
+              {i === bj.activeHand && bj.phase === 'player' ? ' ←' : ''}
+              {h.busted ? ' 爆' : ''}
+            </li>
+          ))}
+          <li>{bj.message}</li>
+        </ul>
+      )}
+      {bj?.phase === 'insurance' && (
+        <div className="modal-actions">
+          <button
+            data-testid="bj-ins-yes"
+            className="primary"
+            disabled={human.cash + 1e-9 < bj.stake / 2}
+            onClick={() => dispatch({ type: 'CASINO_BJ_INSURANCE', take: true })}
+          >
+            买保险
+          </button>
+          <button
+            data-testid="bj-ins-no"
+            onClick={() => dispatch({ type: 'CASINO_BJ_INSURANCE', take: false })}
+          >
+            不买
+          </button>
+        </div>
+      )}
+      {bj?.phase === 'player' && (
+        <div className="modal-actions">
+          <button
+            className="primary"
+            data-testid="bj-hit"
+            onClick={() => dispatch({ type: 'CASINO_BJ_HIT' })}
+          >
+            要牌
+          </button>
+          <button data-testid="bj-stand" onClick={() => dispatch({ type: 'CASINO_BJ_STAND' })}>
+            停牌
+          </button>
+          <button data-testid="bj-double" onClick={() => dispatch({ type: 'CASINO_BJ_DOUBLE' })}>
+            加倍
+          </button>
+          <button data-testid="bj-split" onClick={() => dispatch({ type: 'CASINO_BJ_SPLIT' })}>
+            分牌
+          </button>
+        </div>
+      )}
+      {betting && (
+        <div className="shop-list">
+          {bj?.phase === 'settled' && (
+            <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_BJ_NEXT' })}>
+              <strong>清除牌面</strong>
+              <span>再选注</span>
+            </button>
+          )}
+          {bets.map((amt) => (
+            <button
+              key={amt}
+              className="shop-item"
+              data-testid={`bj-bet-${amt}`}
+              disabled={human.cash + 1e-9 < amt}
+              onClick={() => dispatch({ type: 'CASINO_BJ_BET', amount: amt })}
+            >
+              <strong>下注 {amt} 万</strong>
+              <span>发牌</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="modal-actions">
+        <button
+          disabled={bj?.phase === 'player' || bj?.phase === 'insurance'}
+          onClick={() => dispatch({ type: 'CASINO_LOBBY' })}
+        >
+          回大厅
+        </button>
+        <button
+          data-testid="casino-leave"
+          disabled={bj?.phase === 'player' || bj?.phase === 'insurance' || bj?.phase === 'dealer'}
+          onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}
+        >
+          离开
+        </button>
+      </div>
+    </>
+  )
+}
+
+function VisitPanel({
+  state,
+  human,
+  dispatch,
+}: {
+  state: GameState
+  human: PlayerState
+  dispatch: (a: GameAction) => void
+}) {
+  const v = state.pendingVisitShop
+  if (!v) return null
+  const owner = state.players.find((p) => p.id === v.ownerId)
+  const shop = owner?.shops.find((s) => s.id === v.shopId)
+  const typeLabel = shop ? shopTypeById(shop.typeId)?.label : undefined
+  const staff =
+    shop?.staffIds
+      .map((id) => owner?.relations.find((r) => r.id === id))
+      .filter((r): r is NonNullable<typeof r> => r != null && r.status !== 'broken') ?? []
+  const manager = shop ? owner?.relations.find((r) => r.id === shop.managerId) : undefined
+  const service = v.staffId ? owner?.relations.find((r) => r.id === v.staffId) : undefined
+
+  return (
+    <>
+      <h3 data-testid="visit-title">探店 · {owner?.name ?? '对手'}的店</h3>
+      <p className="muted">
+        {shop?.name ?? '店铺'}
+        {typeLabel ? `（${typeLabel}）` : ''}
+        {v.rapport > 0 ? ` · 印象 ${v.rapport}` : ''}
+      </p>
+
+      {v.step === 'pay' && (
+        <>
+          <p>消费探店费后才能进店聊天、点服务。</p>
+          <div className="shop-list">
+            <button
+              className="shop-item"
+              data-testid="visit-pay"
+              disabled={human.cash + 1e-9 < v.entryFee}
+              onClick={() => dispatch({ type: 'VISIT_PAY' })}
+            >
+              <strong>付钱进店</strong>
+              <span>{v.entryFee} 万</span>
+              <em>费用归店主</em>
+            </button>
+          </div>
+          <button data-testid="visit-leave" onClick={() => dispatch({ type: 'VISIT_LEAVE' })}>
+            不消费离开
+          </button>
+        </>
+      )}
+
+      {v.step === 'talkManager' && (
+        <>
+          <p>店长「{manager?.name ?? '店长'}」在柜台招呼你。</p>
+          <div className="shop-list">
+            <button
+              className="shop-item"
+              data-testid="visit-talk"
+              onClick={() => dispatch({ type: 'VISIT_TALK' })}
+            >
+              <strong>与店长闲聊</strong>
+              <span>印象 +6</span>
+              <em>免费</em>
+            </button>
+          </div>
+        </>
+      )}
+
+      {v.step === 'pickStaff' && (
+        <>
+          <p>选一位店员为你服务（另付小费 {v.tipFee} 万）。</p>
+          <div className="shop-list">
+            {staff.map((r) => (
+              <button
+                key={r.id}
+                className="shop-item"
+                data-testid={`visit-staff-${r.id}`}
+                disabled={human.cash + 1e-9 < v.tipFee}
+                onClick={() => dispatch({ type: 'VISIT_PICK_STAFF', relationId: r.id })}
+              >
+                <strong>{r.name}</strong>
+                <span>
+                  好感 {r.score}
+                  {shop?.managerId === r.id ? ' · 店长' : ' · 店员'}
+                </span>
+                <em>小费 {v.tipFee} 万</em>
+              </button>
+            ))}
+          </div>
+          {!staff.length && (
+            <button data-testid="visit-leave" onClick={() => dispatch({ type: 'VISIT_LEAVE' })}>
+              无人服务，离开
+            </button>
+          )}
+        </>
+      )}
+
+      {v.step === 'gift' && (
+        <>
+          <p>可向「{service?.name ?? '店员'}」送礼加深印象，也可跳过。</p>
+          <div className="shop-list">
+            {VISIT_GIFTS.map((g) => (
+              <button
+                key={g.id}
+                className="shop-item"
+                data-testid={`visit-gift-${g.id}`}
+                disabled={human.cash + 1e-9 < g.cost}
+                onClick={() => dispatch({ type: 'VISIT_GIFT', giftId: g.id })}
+              >
+                <strong>{g.name}</strong>
+                <span>{g.cost} 万</span>
+                <em>印象 +{g.rapport}</em>
+              </button>
+            ))}
+          </div>
+          <button data-testid="visit-skip-gift" onClick={() => dispatch({ type: 'VISIT_SKIP_GIFT' })}>
+            不送礼
+          </button>
+        </>
+      )}
+
+      {v.step === 'poach' && (
+        <>
+          <p>
+            尝试挖角「{service?.name ?? '店员'}」？手续费 {VISIT_POACH_FEE} 万，成功率看忠诚度、印象与拉霸。
+          </p>
+          {v.lastReels && (
+            <p className="muted">
+              本局拉霸 [{v.lastReels.join('-')}]
+              {v.lastPoachOk === true ? ' · 成功' : v.lastPoachOk === false ? ' · 失败' : ''}
+            </p>
+          )}
+          <div className="shop-list">
+            {v.lastPoachOk == null && (
+              <button
+                className="shop-item"
+                data-testid="visit-poach"
+                disabled={
+                  human.poachCooldown > 0 ||
+                  human.cash + 1e-9 < VISIT_POACH_FEE ||
+                  !v.staffId
+                }
+                onClick={() => dispatch({ type: 'VISIT_POACH_SPIN' })}
+              >
+                <strong>拉霸挖角</strong>
+                <span>{VISIT_POACH_FEE} 万</span>
+                <em>
+                  {service
+                    ? `约 ${Math.round(poachSuccessChance(service.score) * 100)}%+印象`
+                    : '发起挖角'}
+                </em>
+              </button>
+            )}
+          </div>
+          <button
+            data-testid="visit-leave"
+            onClick={() =>
+              dispatch({
+                type: v.lastPoachOk == null ? 'VISIT_SKIP_POACH' : 'VISIT_LEAVE',
+              })
+            }
+          >
+            {v.lastPoachOk == null ? '不挖角，离开' : '离开'}
+          </button>
+        </>
+      )}
+    </>
+  )
+}
+
+
+function ExchangePanel({
+  state,
+  human,
+  dispatch,
+  dispatchTaste,
+}: {
+  state: GameState
+  human: PlayerState
+  dispatch: (a: GameAction) => void
+  dispatchTaste: (
+    title: string,
+    waitFor: 'event' | 'location' | 'date' | 'decision',
+    action: GameAction,
+  ) => void
+}) {
+  const ex = state.pendingExchange
+  const screen = ex?.screen ?? 'lobby'
+  const trade = ex?.trade
+  const tradeDone = (ex?.tradeSessionsPlayed ?? 0) >= 1
+
+  if (!ex || screen === 'lobby') {
+    return (
+      <>
+        <h3 data-testid="exchange-title">交易所大厅</h3>
+        <p className="muted">理财柜收息；交易盘进一次玩一局（股票现货 / 币圈杠杆）。</p>
+        <div className="shop-list">
+          <button
+            className="shop-item"
+            data-testid="exchange-open-funds"
+            onClick={() => dispatch({ type: 'EXCHANGE_OPEN_FUNDS' })}
+          >
+            <strong>理财柜</strong>
+            <span>债基 / ETF</span>
+            <em>买完可回大厅</em>
+          </button>
+          <button
+            className="shop-item"
+            data-testid="exchange-open-trade"
+            disabled={tradeDone || human.cash + 1e-9 < EXCHANGE_STAKES[0]}
+            onClick={() => dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake: EXCHANGE_STAKES[0] })}
+          >
+            <strong>交易盘 · {EXCHANGE_STAKES[0]} 万入场</strong>
+            <span>{tradeDone ? '本落点已玩过' : '开局'}</span>
+            <em>多棒行情</em>
+          </button>
+          {EXCHANGE_STAKES.filter((s) => s > EXCHANGE_STAKES[0]).map((stake) => (
+            <button
+              key={stake}
+              className="shop-item"
+              disabled={tradeDone || human.cash + 1e-9 < stake}
+              onClick={() => dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake })}
+            >
+              <strong>交易盘 · {stake} 万入场</strong>
+              <span>更大本金</span>
+              <em>风险自担</em>
+            </button>
+          ))}
+        </div>
+        <button
+          data-testid="exchange-leave"
+          onClick={() => dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })}
+        >
+          离开交易所
+        </button>
+      </>
+    )
+  }
+
+  if (screen === 'funds') {
+    return (
+      <>
+        <h3 data-testid="exchange-funds-title">理财柜</h3>
+        <p className="muted">买入标的或按成本 {Math.round(INVEST_SELL_RATIO * 100)}% 卖出。</p>
+        <div className="shop-list">
+          {investOffersFor(human.track).map((o) => {
+            const cost =
+              human.trait === 'investDiscount' ? Math.round(o.cost * 90) / 100 : o.cost
+            return (
+              <button
+                key={o.id}
+                className="shop-item"
+                disabled={human.cash + 1e-9 < cost}
+                onClick={() =>
+                  dispatch({ type: 'LOCATION_BUY_INVEST', offerId: o.id })
+                }
+              >
+                <strong>买 {o.name}</strong>
+                <span>{cost} 万</span>
+                <em>季现金流 +{o.cashflow}</em>
+              </button>
+            )
+          })}
+          {human.investments.map((inv) => (
+            <button
+              key={inv.id}
+              className="shop-item"
+              onClick={() =>
+                dispatch({ type: 'LOCATION_SELL_INVEST', investmentId: inv.id })
+              }
+            >
+              <strong>卖 {inv.name}</strong>
+              <span>+{Math.round(inv.cost * INVEST_SELL_RATIO * 100) / 100} 万</span>
+              <em>回笼</em>
+            </button>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button onClick={() => dispatch({ type: 'EXCHANGE_LOBBY' })}>回大厅</button>
+          <button
+            data-testid="exchange-leave"
+            onClick={() => dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })}
+          >
+            离开
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  // trade screen
+  if (!trade) {
+    return (
+      <>
+        <h3>交易盘</h3>
+        <p className="muted">会话已结束。</p>
+        <button onClick={() => dispatch({ type: 'EXCHANGE_LOBBY' })}>回大厅</button>
+      </>
+    )
+  }
+
+  const eq = tradeEquity(trade)
+  const amounts = [0.1, 0.2, 0.5].filter((a) => a <= trade.cash + 1e-9)
+
+  return (
+    <>
+      <h3 data-testid="exchange-trade-title">交易盘</h3>
+      <p className="muted">
+        棒 {trade.tick}/{trade.maxTicks} · 局内现金 {trade.cash.toFixed(2)} · 权益约 {eq.toFixed(2)} ·
+        币杠杆 {trade.cryptoLeverage}×
+      </p>
+      {trade.lastMessage ? <p className="muted">{trade.lastMessage}</p> : null}
+
+      <p className="muted">币圈杠杆</p>
+      <div className="shop-list">
+        {([1, 2, 5] as Leverage[]).map((lev) => (
+          <button
+            key={lev}
+            className="shop-item"
+            data-testid={`exchange-lev-${lev}`}
+            onClick={() => dispatch({ type: 'EXCHANGE_SET_LEVERAGE', leverage: lev })}
+          >
+            <strong>{lev}×</strong>
+            <span>仅币圈</span>
+            <em>{trade.cryptoLeverage === lev ? '当前' : '切换'}</em>
+          </button>
+        ))}
+      </div>
+
+      <p className="muted">行情</p>
+      <div className="shop-list">
+        {trade.symbols.map((sym) => {
+          const def = symbolDefById(sym.id)
+          const pos = trade.positions.find((p) => p.symbolId === sym.id)
+          const ch = sym.lastChange
+          return (
+            <div key={sym.id} className="shop-item" style={{ display: 'block' }}>
+              <strong>
+                {def?.name ?? sym.id}{' '}
+                <span className="muted">
+                  {sym.price.toFixed(2)} ({ch >= 0 ? '+' : ''}
+                  {(ch * 100).toFixed(1)}%)
+                </span>
+              </strong>
+              {pos ? (
+                <p className="muted">
+                  持仓 {pos.qty.toFixed(2)} · {pos.leverage}× · 成本 {pos.entry.toFixed(2)}
+                </p>
+              ) : null}
+              <div className="modal-actions">
+                {amounts.map((amt) => (
+                  <button
+                    key={`${sym.id}-b-${amt}`}
+                    data-testid={`exchange-buy-${sym.id}-${amt}`}
+                    disabled={trade.cash + 1e-9 < amt}
+                    onClick={() =>
+                      dispatch({ type: 'EXCHANGE_BUY', symbolId: sym.id, amount: amt })
+                    }
+                  >
+                    买 {amt}
+                  </button>
+                ))}
+                {pos ? (
+                  <button
+                    data-testid={`exchange-sell-${sym.id}`}
+                    onClick={() =>
+                      dispatch({ type: 'EXCHANGE_SELL', symbolId: sym.id, qtyRatio: 1 })
+                    }
+                  >
+                    全平
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="modal-actions">
+        <button
+          data-testid="exchange-tick"
+          disabled={trade.ended != null}
+          onClick={() => dispatch({ type: 'EXCHANGE_TICK' })}
+        >
+          下一棒行情
+        </button>
+        <button data-testid="exchange-close" onClick={() => dispatch({ type: 'EXCHANGE_CLOSE' })}>
+          收盘离场
+        </button>
+      </div>
+    </>
   )
 }

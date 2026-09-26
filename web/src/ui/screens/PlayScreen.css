@@ -24,6 +24,56 @@
   animation: moment-in 0.28s ease-out;
 }
 
+.event-taste-card {
+  width: min(400px, 100%);
+  text-align: left;
+  animation: moment-in 0.28s ease-out;
+}
+
+.event-taste-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.event-taste-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(12, 22, 18, 0.45);
+  border: 1px solid var(--line);
+}
+
+.event-taste-list li strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.event-taste-list .taste-pos strong {
+  color: var(--accent2, #7dcea0);
+}
+
+.event-taste-list .taste-neg strong {
+  color: #e07a5f;
+}
+
+.event-taste-list .taste-neutral strong {
+  color: var(--ink);
+}
+
+.event-taste-note {
+  margin: 0.85rem 0 0;
+  font-size: 0.88rem;
+  color: var(--accent);
+}
+
 @keyframes moment-in {
   from {
     opacity: 0;
@@ -51,15 +101,34 @@
   width: 100%;
 }
 
-.play-grid .finance {
+.play-grid .info-split {
   width: 100%;
   max-width: none;
   margin: 0;
   flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
-.play .controls,
-.play .log {
+.info-split .finance-trigger,
+.info-split .log-trigger {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.info-split .finance-trigger {
+  border-right: 1px solid var(--line);
+}
+
+.play .controls {
   flex-shrink: 0;
 }
 
@@ -70,21 +139,25 @@
   gap: 0.4rem;
 }
 
-.control-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
-  width: 100%;
-  font-size: 0.8rem;
-  order: 10;
+.controls-actions {
+  gap: 0.45rem;
+}
+
+.controls-spin {
+  padding: 0.45rem 0.65rem;
 }
 
 .control-spin {
-  width: auto;
+  width: 100%;
+  min-height: 44px;
+  font-size: 1rem;
 }
 
 .control-secondary {
-  display: contents;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  width: 100%;
 }
 
 .controls button {
@@ -95,39 +168,44 @@
   display: none;
 }
 
-.log.collapsible {
-  padding: 0;
-}
-
-.log-summary {
-  list-style: none;
-  cursor: pointer;
+.log-trigger {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.75rem;
-  padding: 0.45rem 0.75rem;
-  min-height: 40px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  border-radius: inherit;
 }
 
-.log-summary::-webkit-details-marker {
-  display: none;
+.log-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
-.log-summary::after {
-  content: '▾';
-  color: var(--muted);
-  margin-left: auto;
+.log-trigger:not(:disabled):hover {
+  background: rgba(226, 177, 74, 0.06);
 }
 
-.log.collapsible[open] > .log-summary::after {
-  content: '▴';
+.log-trigger-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
-.log-summary strong {
+.log-trigger strong {
   font-family: var(--font-display);
   font-weight: 400;
   font-size: 0.9rem;
+  color: var(--accent);
 }
 
 .log-preview {
@@ -139,24 +217,39 @@
   white-space: nowrap;
 }
 
-.log.collapsible ul {
-  padding: 0 0.75rem 0.5rem;
+.log-modal-card {
+  width: min(480px, 100%);
+  max-height: min(82vh, 560px);
+  display: flex;
+  flex-direction: column;
 }
 
-.log ul {
+.log-modal-card h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.05rem;
+  margin: 0 0 0.65rem;
+  color: var(--accent);
+}
+
+.log-modal-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  max-height: 72px;
   overflow: auto;
-  font-size: 0.8rem;
-  line-height: 1.4;
+  flex: 1;
+  font-size: 0.85rem;
+  line-height: 1.5;
   color: var(--muted);
 }
 
-.log h3 {
-  font-size: 0.9rem;
-  margin-bottom: 0.25rem;
+.log-modal-list li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(242, 239, 230, 0.08);
+}
+
+.log-modal-list li:last-child {
+  border-bottom: none;
 }
 
 .modal {
@@ -236,17 +329,7 @@
 }
 
 @media (min-width: 641px) {
-  .log-summary {
-    cursor: default;
-    pointer-events: none;
-    min-height: 0;
-    padding: 0.55rem 0.75rem 0.2rem;
-  }
-
-  .log-summary::after,
-  .log-preview {
-    display: none;
-  }
+  /* reserved for desktop tweaks */
 }
 
 /* —— 竖屏：棋盘优先，操作条收成 HUD —— */
@@ -276,30 +359,13 @@
     border-radius: 8px;
   }
 
-  .control-status {
-    order: 0;
-    width: 100%;
-    justify-content: space-between;
-    font-size: 0.66rem;
-    margin: 0 0 0.22rem;
-    letter-spacing: 0.02em;
-  }
-
-  .control-spin {
-    order: 1;
-    width: 100%;
-    min-height: 34px;
-    height: 34px;
-    padding: 0 0.7rem;
-    margin: 0 0 0.22rem;
-    font-size: 0.84rem;
-    border-radius: 7px;
+  .controls-spin {
+    padding: 0.28rem 0.4rem 0.36rem;
   }
 
   .control-secondary {
-    order: 2;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.22rem;
     width: 100%;
   }
@@ -313,10 +379,14 @@
     white-space: nowrap;
   }
 
-  .control-secondary > button.primary {
-    grid-column: 1 / -1;
-    min-height: 32px;
-    height: 32px;
+  .control-spin {
+    width: 100%;
+    min-height: 40px;
+    height: 40px;
+    padding: 0 0.7rem;
+    margin: 0;
+    font-size: 0.92rem;
+    border-radius: 8px;
   }
 
   .btn-full {
@@ -327,27 +397,21 @@
     display: inline;
   }
 
-  .log.collapsible {
+  .info-split {
     border-radius: 8px;
   }
 
-  .log-summary {
-    min-height: 0;
-    padding: 0.22rem 0.45rem;
-    gap: 0.3rem;
+  .log-trigger {
+    padding: 0.28rem 0.4rem;
+    gap: 0.2rem;
   }
 
-  .log-summary strong {
-    font-size: 0.72rem;
+  .log-trigger strong {
+    font-size: 0.78rem;
   }
 
   .log-preview {
-    font-size: 0.66rem;
-  }
-
-  .log ul {
-    max-height: 4.2rem;
-    font-size: 0.7rem;
+    font-size: 0.64rem;
   }
 
   .shop-item {

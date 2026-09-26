@@ -213,6 +213,11 @@
   box-shadow: inset 0 0 0 1px rgba(242, 239, 230, 0.2);
 }
 
+.kind-owned-shop {
+  box-shadow: inset 0 0 0 1px rgba(226, 177, 74, 0.55);
+  background: #2a2418;
+}
+
 .kind-manage {
   box-shadow: inset 0 0 0 1px rgba(226, 177, 74, 0.25);
 }

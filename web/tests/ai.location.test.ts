@@ -24,6 +24,8 @@ function player(over: Partial<PlayerState> & { aiStyle: AiStyle }): PlayerState 
         score: 60,
         status: 'stable',
         locked: false,
+        skills: ['sales'],
+        training: null,
       },
     ],
     shops: [],
@@ -94,6 +96,8 @@ describe('pickAiLocationAction', () => {
           score: 40,
           status: 'stable',
           locked: false,
+          skills: ['sales'],
+          training: null,
         },
       ],
     })

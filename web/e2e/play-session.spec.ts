@@ -119,8 +119,9 @@ async function clearModals(page: Page, notes: Note[], max = 24) {
       continue
     }
 
-    if (title.includes('赌场')) {
-      await safeClick(topModal.getByRole('button', { name: '不赌了' }), notes, '赌场离开')
+    if (title.includes('赌场') || title.includes('百家乐') || title.includes('骰子') || title.includes('21')) {
+      const leave = topModal.getByRole('button', { name: /离开赌场|离开|不赌了/ })
+      await safeClick(leave, notes, '赌场离开')
       continue
     }
 
@@ -184,25 +185,29 @@ test('玩家视角：fast 局连玩体验', async ({ page }) => {
     await clearModals(page, notes)
 
     const ageText = await page.locator('.topbar .muted').innerText().catch(() => '')
-    const spin = page.getByRole('button', { name: /777 拉霸/ })
-    const endTurn = page.getByRole('button', { name: '结束回合' })
+    const primary = page.locator('.controls-spin .control-spin')
     const pushAi = page.getByRole('button', { name: '推进 AI' })
 
-    if (await spin.isEnabled().catch(() => false)) {
-      await spin.click()
-      await page.waitForTimeout(1500)
-      await clearModals(page, notes)
-      if (await endTurn.isEnabled().catch(() => false)) {
-        await endTurn.click()
+    if (await primary.isEnabled().catch(() => false)) {
+      const label = ((await primary.textContent()) ?? '').trim()
+      await primary.click()
+      if (/777|拉霸/.test(label)) {
+        await page.waitForTimeout(1500)
+        await clearModals(page, notes)
+        if (await primary.isEnabled().catch(() => false)) {
+          const after = ((await primary.textContent()) ?? '').trim()
+          if (/结束/.test(after)) {
+            await primary.click()
+            await clearModals(page, notes)
+          }
+        }
+      } else {
         await clearModals(page, notes)
       }
     } else if (await pushAi.isVisible().catch(() => false)) {
       await clearModals(page, notes)
       await safeClick(pushAi, notes, '推进 AI')
       await page.waitForTimeout(350)
-      await clearModals(page, notes)
-    } else if (await endTurn.isEnabled().catch(() => false)) {
-      await endTurn.click()
       await clearModals(page, notes)
     } else {
       await page.waitForTimeout(250)
