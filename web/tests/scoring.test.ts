@@ -24,6 +24,8 @@ describe('scoring', () => {
       actionPoints: 0,
       aiStyle: null,
       trait: null,
+      poachCooldown: 0,
+      maintainedRelationIds: [],
     }
     const s = scorePlayer(p)
     expect(s.free).toBe(true)

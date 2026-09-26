@@ -35,6 +35,8 @@ export function createGame(opts: {
       actionPoints: ACTION_POINTS_PER_SEASON,
       aiStyle: isHuman ? null : AI_STYLES[Math.floor(rng.next() * AI_STYLES.length)],
       trait: null,
+      poachCooldown: 0,
+      maintainedRelationIds: [],
     })
   }
 

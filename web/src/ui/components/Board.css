@@ -42,16 +42,74 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  container-type: size;
 }
 
 .board-stack {
   position: relative;
-  /* 在剩余视口里尽量做大方形盘 */
-  width: min(100%, calc(100dvh - 13.5rem));
+  /* 在父容器内取最大内接正方形，避免按整屏 dvh 撑破后被裁成 0 */
+  width: min(100%, 100cqmin);
+  height: min(100%, 100cqmin);
   max-width: 100%;
-  aspect-ratio: 1;
-  height: auto;
   max-height: 100%;
+  aspect-ratio: 1;
+}
+
+@supports not (width: 1cqmin) {
+  .board-stack {
+    width: min(100%, calc(100dvh - 13.5rem));
+    height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .board {
+    padding: 0.3rem 0.35rem 0.35rem;
+  }
+
+  .board-switch {
+    gap: 0.2rem;
+    margin-bottom: 0.18rem;
+  }
+
+  .board-switch button {
+    min-width: 0;
+    flex: 1 1 auto;
+    min-height: 26px;
+    height: 26px;
+    padding: 0 0.4rem;
+    font-size: 0.72rem;
+    border-radius: 5px;
+  }
+
+  .switch-hint {
+    width: 100%;
+    font-size: 0.62rem;
+    margin-top: 0;
+  }
+
+  .square-grid {
+    gap: 1px;
+  }
+
+  .square-cell {
+    padding: 0.1rem;
+    border-radius: 3px;
+  }
+
+  .cell-label {
+    font-size: clamp(0.48rem, 2.8vw, 0.68rem);
+  }
+
+  .token {
+    width: 7px;
+    height: 7px;
+  }
+
+  .square-center-hole,
+  .slot-overlay {
+    inset: 16%;
+  }
 }
 
 .square-board {

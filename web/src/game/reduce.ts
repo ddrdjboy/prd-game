@@ -1,7 +1,8 @@
 import { buildTrack, isPaydaySpace, move, spaceHasLocationAction } from './board'
-import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, SEASONS } from './config'
+import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, POACH_COOLDOWN_TURNS, EARLY_AGE_MAX, EARLY_PAY_BONUS, INVESTOR_START_BONUS, SEASONS } from './config'
 import { CAREERS } from './careers'
 import { createGame } from './createGame'
+import { pickAiLocationAction } from './ai'
 import { EVENTS, canAffordChoice, choiceCashCost, pickEventChoice, type EventEffect } from './events'
 import {
   DATE_VENUES,
@@ -19,10 +20,11 @@ import {
   poachSuccessChance,
   poachableTargets,
 } from './office'
-import { CASINO_BETS, SHOP_ITEMS, VACANT_COST, VACANT_SHOP_CASHFLOW, shopItemById } from './location'
+import { VACANT_COST, VACANT_SHOP_CASHFLOW, VACANT_HIRE_EXTRA, shopItemById, investOfferById, PARK_REST_CASH, PARK_CHAT_BOOST, INVEST_SELL_RATIO } from './location'
 import { resolveSlotEvent } from './slotEvents'
 import { calcFinance, canPromote, round2 } from './finance'
 import { NETWORK_NAMES, ROMANCE_NAMES, pickName } from './relationsCatalog'
+import { decayPlayerRelations } from './relations'
 import { createRng } from './rng'
 import type {
   GameAction,
@@ -33,8 +35,11 @@ import type {
   Track,
 } from './types'
 
+let logSeq = 0
+
 function pushLog(state: GameState, text: string): GameState {
-  const id = `log-${state.logs.length}-${state.rngState}`
+  logSeq += 1
+  const id = `log-${logSeq}-${state.rngState}`
   return { ...state, logs: [...state.logs.slice(-80), { id, text }] }
 }
 
@@ -323,14 +328,26 @@ export function applyEffects(
   return s
 }
 
+function markMaintained(state: GameState, playerId: string, relationId: string): GameState {
+  return updatePlayer(state, playerId, (p) => {
+    const ids = p.maintainedRelationIds ?? []
+    if (ids.includes(relationId)) return p
+    return { ...p, maintainedRelationIds: [...ids, relationId] }
+  })
+}
+
 function applyPayday(state: GameState, playerId: string): GameState {
   const p = state.players.find((x) => x.id === playerId)!
   const f = calcFinance(p)
+  const early = state.age < EARLY_AGE_MAX ? EARLY_PAY_BONUS : 0
+  const delta = round2(f.seasonalCashflow + early)
   let s = updatePlayer(state, playerId, (pl) => ({
     ...pl,
-    cash: round2(pl.cash + f.seasonalCashflow),
+    cash: round2(pl.cash + delta),
   }))
-  s = pushLog(s, `${p.name} 结算现金流 ${f.seasonalCashflow >= 0 ? '+' : ''}${f.seasonalCashflow} 万。`)
+  let msg = `${p.name} 结算现金流 ${f.seasonalCashflow >= 0 ? '+' : ''}${f.seasonalCashflow} 万`
+  if (early > 0) msg += `（年轻红利 +${early}）`
+  s = pushLog(s, `${msg}。`)
   const next = s.players.find((x) => x.id === playerId)!
   if (next.cash < 0) {
     s = {
@@ -375,9 +392,17 @@ function chooseCareer(state: GameState, careerId: string): GameState {
 }
 
 function promote(state: GameState, playerId: string): GameState {
-  const s = updatePlayer(state, playerId, (p) => ({ ...p, track: 'investor' as const, position: 0 }))
+  let s = updatePlayer(state, playerId, (p) => ({
+    ...p,
+    track: 'investor' as const,
+    position: 0,
+    cash: round2(p.cash + INVESTOR_START_BONUS),
+  }))
   const name = s.players.find((p) => p.id === playerId)!.name
-  return pushLog(s, `${name} 晋级投资人圈！`)
+  return pushLog(
+    s,
+    `${name} 晋级投资人圈！身份转变，启动金 +${INVESTOR_START_BONUS} 万。`,
+  )
 }
 
 function rollAndMove(state: GameState): GameState {
@@ -528,15 +553,31 @@ function resolveEventChoice(state: GameState, choiceId: string): GameState {
   const pending = state.pendingEvent
   const event = EVENTS.find((e) => e.id === pending.eventId)
   if (!event) return { ...state, pendingEvent: null }
-  const choice =
+
+  const player = state.players.find((x) => x.id === pending.playerId)
+  const cash = player?.cash ?? 0
+
+  // 全部付不起或显式跳过：空手过关，不卡死
+  if (choiceId === '__skip__' || !event.choices.some((ch) => canAffordChoice(cash, ch.effects))) {
+    const rng = createRng(state.rngState)
+    let s: GameState = { ...state, pendingEvent: null, rngState: rng.state() }
+    s = pushLog(s, `事件：${event.title} — 手头太紧，只能空手过关。`)
+    const loc = makeLocation(pending.playerId, pending.landTrack, pending.landIndex)
+    if (loc) s = { ...s, pendingLocation: loc }
+    return s
+  }
+
+  let choice =
     event.choices.find((x) => x.id === choiceId) ??
     event.choices.find((x) => x.id === 'accept') ??
     event.choices[0]
   if (!choice) return { ...state, pendingEvent: null }
 
-  const player = state.players.find((x) => x.id === pending.playerId)
-  if (player && !canAffordChoice(player.cash, choice.effects) && choiceCashCost(choice.effects) > 0) {
-    return pushLog(state, `现金不足，无法选择「${choice.label}」。`)
+  if (!canAffordChoice(cash, choice.effects) && choiceCashCost(choice.effects) > 0) {
+    // 所选付不起：改走可负担项或跳过，避免 pendingEvent 残留
+    const fallback = event.choices.find((ch) => canAffordChoice(cash, ch.effects))
+    if (!fallback) return resolveEventChoice(state, '__skip__')
+    choice = fallback
   }
 
   const rng = createRng(state.rngState)
@@ -558,6 +599,15 @@ function resolveEventChoice(state: GameState, choiceId: string): GameState {
     s = promote(s, p.id)
   }
 
+  // 任何决策弹层优先：落点延后，避免双 modal 叠层
+  if (s.pendingDecision) {
+    return {
+      ...s,
+      pendingLocation: null,
+      deferredLocation: loc ?? s.deferredLocation,
+    }
+  }
+
   if (loc) s = { ...s, pendingLocation: loc }
   return s
 }
@@ -575,20 +625,61 @@ function clearLocation(state: GameState): GameState {
   return { ...state, pendingLocation: null }
 }
 
-function locationBuyVacant(state: GameState): GameState {
+function locationBuyVacant(state: GameState, relationId: string): GameState {
   const loc = state.pendingLocation
   if (!loc || loc.spaceKind !== 'vacant') return state
   const p = state.players.find((x) => x.id === loc.playerId)!
-  if (p.cash < VACANT_COST) {
+  const hire = relationId === '__hire__'
+  const totalCost = round2(VACANT_COST + (hire ? VACANT_HIRE_EXTRA : 0))
+  if (p.cash + 1e-9 < totalCost) {
     return pushLog(clearLocation(state), `${p.name} 现金不足，买不下这片空地。`)
   }
-  const ops = p.relations.filter((r) => r.status !== 'broken')
-  if (!ops.length) {
+
+  const rng = createRng(state.rngState)
+  let s = state
+  let opId = relationId
+  let opName = ''
+
+  if (hire) {
+    const names = NETWORK_NAMES
+    const used = usedNames(s)
+    const name = pickName(names, used, () => rng.next())
+    opId = `hire-${Math.floor(rng.next() * 1e6)}`
+    opName = name
+    s = updatePlayer(s, loc.playerId, (pl) => ({
+      ...pl,
+      cash: round2(pl.cash - totalCost),
+      relations: [
+        ...pl.relations,
+        {
+          id: opId,
+          kind: 'network' as const,
+          name,
+          score: 32,
+          status: 'new' as const,
+          locked: false,
+        },
+      ],
+      shops: [
+        ...pl.shops,
+        {
+          id: `lot-${loc.track}-${loc.spaceIndex}-${Math.floor(rng.next() * 1e6)}`,
+          name: `${loc.track === 'worker' ? '市区' : '商圈'}空地店`,
+          level: 1 as const,
+          baseCashflow: VACANT_SHOP_CASHFLOW,
+          operatorRelationId: opId,
+        },
+      ],
+    }))
+    s = { ...s, rngState: rng.state(), pendingLocation: null }
+    return pushLog(s, `${p.name} 花 ${totalCost} 万买空地并雇「${opName}」看店。`)
+  }
+
+  const op = p.relations.find((r) => r.id === relationId && r.status !== 'broken')
+  if (!op) {
     return pushLog(clearLocation(state), `${p.name} 没有可绑定的经营者，空地只能先放弃。`)
   }
-  const op = ops.sort((a, b) => b.score - a.score)[0]
-  const rng = createRng(state.rngState)
-  let s = updatePlayer(state, loc.playerId, (pl) => ({
+  s = updatePlayer(s, loc.playerId, (pl) => ({
     ...pl,
     cash: round2(pl.cash - VACANT_COST),
     shops: [
@@ -643,14 +734,37 @@ function locationPoach(state: GameState): GameState {
   return officePoach({ ...state, rngState: rng.state() }, pick.owner.id, pick.rel.id)
 }
 
-function aiOfficeAction(state: GameState): GameState {
+function applyAiLocation(state: GameState): GameState {
   const loc = state.pendingLocation
-  if (!loc || loc.spaceKind !== 'office') return state
-  const p = state.players.find((x) => x.id === loc.playerId)!
-  const targets = poachableTargets(loc.playerId, state.players)
-  if (targets.length && p.cash + 1e-9 >= OFFICE_POACH_COST) return locationPoach(state)
-  if (p.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return officeRecommend(state, 'network')
-  return pushLog(clearLocation(state), `${p.name} 离开了事务所。`)
+  if (!loc) return state
+  const p = state.players.find((x) => x.id === loc.playerId)
+  if (!p) return clearLocation(state)
+  const hasTargets = poachableTargets(loc.playerId, state.players).length > 0
+  const pick = pickAiLocationAction(p, loc, hasTargets)
+  switch (pick.type) {
+    case 'buyVacant':
+      return locationBuyVacant(state, pick.relationId)
+    case 'buyItem':
+      return locationBuyItem(state, pick.itemId)
+    case 'poach':
+      return locationPoach(state)
+    case 'recommend':
+      return officeRecommend(state, pick.kind)
+    case 'upgrade':
+      return locationUpgradeShop(state, pick.shopId)
+    case 'rebind':
+      return locationRebindOperator(state, pick.shopId, pick.relationId)
+    case 'gamble':
+      return locationGamble(state, pick.bet)
+    case 'parkRest':
+      return locationParkRest(state)
+    case 'parkChat':
+      return locationParkChat(state, pick.relationId)
+    case 'buyInvest':
+      return locationBuyInvest(state, pick.offerId)
+    default:
+      return pushLog(clearLocation(state), `${p.name} 离开了${loc.label}。`)
+  }
 }
 
 function officeRecommend(state: GameState, kind: 'network' | 'romance'): GameState {
@@ -707,6 +821,9 @@ function officeAdjust(
     cash: round2(p.cash - cost),
   }))
   s = boostRelationById(s, ownerId, relationId, delta)
+  if (direction === 'up' && ownerId === loc.playerId) {
+    s = markMaintained(s, loc.playerId, relationId)
+  }
   s = { ...s, pendingLocation: null }
   const verb = direction === 'up' ? '升温' : '降温'
   const whose = ownerId === loc.playerId ? '自己的' : `${owner.name} 的`
@@ -717,6 +834,9 @@ function officePoach(state: GameState, targetPlayerId: string, relationId: strin
   const loc = state.pendingLocation
   if (!loc || loc.spaceKind !== 'office') return state
   const actor = state.players.find((p) => p.id === loc.playerId)!
+  if (actor.poachCooldown > 0) {
+    return pushLog(state, `挖角冷却中（还剩 ${actor.poachCooldown} 回合）。`)
+  }
   if (targetPlayerId === loc.playerId) return state
   const target = state.players.find((p) => p.id === targetPlayerId)
   const rel = target?.relations.find((r) => r.id === relationId)
@@ -730,6 +850,7 @@ function officePoach(state: GameState, targetPlayerId: string, relationId: strin
   let s = updatePlayer(state, loc.playerId, (p) => ({
     ...p,
     cash: round2(p.cash - OFFICE_POACH_COST),
+    poachCooldown: POACH_COOLDOWN_TURNS,
   }))
   s = { ...s, pendingLocation: null, rngState: rng.state() }
   s = pushLog(s, `${actor.name} 花 ${OFFICE_POACH_COST} 万委托事务所挖「${rel.name}」。`)
@@ -754,12 +875,13 @@ function officePoach(state: GameState, targetPlayerId: string, relationId: strin
   return { ...s, rngState: rng.state() }
 }
 
-function locationManage(state: GameState): GameState {
+function locationUpgradeShop(state: GameState, shopId: string): GameState {
   const loc = state.pendingLocation
   if (!loc || loc.spaceKind !== 'manage') return state
   const p = state.players.find((x) => x.id === loc.playerId)!
-  if (!p.shops.length) {
-    return pushLog(clearLocation(state), `${p.name} 还没有店铺可经营。`)
+  const shop = p.shops.find((s) => s.id === shopId)
+  if (!shop) {
+    return pushLog(clearLocation(state), `${p.name} 找不到要升级的店。`)
   }
   if (p.cash < 0.2) {
     return pushLog(clearLocation(state), `${p.name} 没钱追加经营投入。`)
@@ -767,18 +889,115 @@ function locationManage(state: GameState): GameState {
   let s = updatePlayer(state, loc.playerId, (pl) => ({
     ...pl,
     cash: round2(pl.cash - 0.2),
-    shops: pl.shops.map((shop) =>
-      shop.level < 3
-        ? {
-            ...shop,
-            level: (shop.level + 1) as 1 | 2 | 3,
-            baseCashflow: round2(shop.baseCashflow + 0.08),
-          }
-        : { ...shop, baseCashflow: round2(shop.baseCashflow + 0.03) },
+    shops: pl.shops.map((sh) => {
+      if (sh.id !== shopId) return sh
+      if (sh.level < 3) {
+        return {
+          ...sh,
+          level: (sh.level + 1) as 1 | 2 | 3,
+          baseCashflow: round2(sh.baseCashflow + 0.08),
+        }
+      }
+      return { ...sh, baseCashflow: round2(sh.baseCashflow + 0.03) }
+    }),
+  }))
+  s = clearLocation(s)
+  return pushLog(s, `${p.name} 升级了「${shop.name}」。`)
+}
+
+function locationRebindOperator(state: GameState, shopId: string, relationId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'manage') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  const shop = p.shops.find((s) => s.id === shopId)
+  const op = p.relations.find((r) => r.id === relationId && r.status !== 'broken')
+  if (!shop || !op) {
+    return pushLog(clearLocation(state), `${p.name} 无法更换经营者。`)
+  }
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    shops: pl.shops.map((sh) =>
+      sh.id === shopId ? { ...sh, operatorRelationId: relationId } : sh,
     ),
   }))
   s = clearLocation(s)
-  return pushLog(s, `${p.name} 在经营区升级/加码店铺。`)
+  return pushLog(s, `${p.name} 将「${shop.name}」交给「${op.name}」经营。`)
+}
+
+function locationParkRest(state: GameState): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'park') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash + PARK_REST_CASH),
+  }))
+  s = clearLocation(s)
+  return pushLog(s, `${p.name} 在公园休息，现金 +${PARK_REST_CASH} 万。`)
+}
+
+function locationParkChat(state: GameState, relationId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'park') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  const rel = p.relations.find((r) => r.id === relationId && r.status !== 'broken')
+  if (!rel) {
+    return pushLog(clearLocation(state), `${p.name} 没找到聊天对象，只好离开公园。`)
+  }
+  let s = boostRelationById(state, loc.playerId, relationId, PARK_CHAT_BOOST)
+  s = markMaintained(s, loc.playerId, relationId)
+  s = clearLocation(s)
+  return pushLog(s, `${p.name} 与「${rel.name}」在公园小坐，好感 +${PARK_CHAT_BOOST}。`)
+}
+
+function locationBuyInvest(state: GameState, offerId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'invest') return state
+  const offer = investOfferById(offerId)
+  if (!offer) return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  if (offer.investorOnly && p.track !== 'investor') {
+    return pushLog(clearLocation(state), `${p.name} 还不是投资人，买不了「${offer.name}」。`)
+  }
+  const discount = p.trait === 'investDiscount' ? 0.9 : 1
+  const cost = round2(offer.cost * discount)
+  if (p.cash + 1e-9 < cost) {
+    return pushLog(clearLocation(state), `${p.name} 买不起「${offer.name}」。`)
+  }
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash - cost),
+    investments: [
+      ...pl.investments,
+      {
+        id: `inv-${offer.id}-${Math.floor(rng.next() * 1e6)}`,
+        name: offer.name,
+        cost,
+        cashflow: offer.cashflow,
+      },
+    ],
+  }))
+  s = { ...s, rngState: rng.state(), pendingLocation: null }
+  return pushLog(s, `${p.name} 在投资所买入「${offer.name}」（${cost} 万）。`)
+}
+
+function locationSellInvest(state: GameState, investmentId: string): GameState {
+  const loc = state.pendingLocation
+  if (!loc || loc.spaceKind !== 'invest') return state
+  const p = state.players.find((x) => x.id === loc.playerId)!
+  const inv = p.investments.find((i) => i.id === investmentId)
+  if (!inv) {
+    return pushLog(clearLocation(state), `${p.name} 没有这笔持仓。`)
+  }
+  const refund = round2(inv.cost * INVEST_SELL_RATIO)
+  let s = updatePlayer(state, loc.playerId, (pl) => ({
+    ...pl,
+    cash: round2(pl.cash + refund),
+    investments: pl.investments.filter((i) => i.id !== investmentId),
+  }))
+  s = clearLocation(s)
+  return pushLog(s, `${p.name} 卖出「${inv.name}」，回笼 ${refund} 万。`)
 }
 
 /** 赌场：约 45% 赢 2 倍（净赚 bet），否则输掉 bet */
@@ -850,6 +1069,7 @@ function completeDate(
     cash: round2(p.cash - venue.cost),
   }))
   s = boostRelationById(s, playerId, relationId, boost)
+  s = markMaintained(s, playerId, relationId)
   s = { ...s, pendingDate: null }
   const verb = rel.kind === 'romance' ? '约会' : '交友'
   return pushLog(s, `${player.name} 和「${rel.name}」${verb}：${venue.name}（好感+${boost}）。`)
@@ -942,13 +1162,32 @@ function endTurn(state: GameState): GameState {
   ) {
     return state
   }
-  let nextIndex = state.turnPlayerIndex + 1
-  let s = state
 
-  if (nextIndex >= state.players.length) {
+  const ending = state.players[state.turnPlayerIndex]
+  const decayed = decayPlayerRelations(ending, ending.maintainedRelationIds ?? [])
+  const afterCooldown: typeof decayed.player = {
+    ...decayed.player,
+    poachCooldown: Math.max(0, (decayed.player.poachCooldown ?? 0) - 1),
+    maintainedRelationIds: [],
+  }
+  let s: GameState = {
+    ...state,
+    players: state.players.map((p) => (p.id === ending.id ? afterCooldown : p)),
+  }
+  if (decayed.brokenNames.length) {
+    s = pushLog(s, `${ending.name} 与 ${decayed.brokenNames.join('、')} 疏于维护，关系破裂。`)
+  } else if (decayed.cooled) {
+    s = pushLog(s, `${ending.name} 的人际关系略有降温（疏于维护）。`)
+  } else if ((ending.maintainedRelationIds ?? []).length) {
+    s = pushLog(s, `${ending.name} 本回合有维护关系，部分人情未降温。`)
+  }
+
+  let nextIndex = s.turnPlayerIndex + 1
+
+  if (nextIndex >= s.players.length) {
     nextIndex = 0
-    let seasonIndex = state.seasonIndex + 1
-    let age = state.age
+    let seasonIndex = s.seasonIndex + 1
+    let age = s.age
     if (seasonIndex >= 4) {
       seasonIndex = 0
       age += 1
@@ -1044,17 +1283,7 @@ export function autoStep(state: GameState): GameState {
   if (state.pendingLocation) {
     const p = state.players.find((x) => x.id === state.pendingLocation!.playerId)
     if (p?.isHuman && !state.autoEnabled) return state
-    // AI / 自动：按地点偏好行动
-    const loc = state.pendingLocation
-    if (loc.spaceKind === 'vacant') return locationBuyVacant(state)
-    if (loc.spaceKind === 'shop') {
-      const item = SHOP_ITEMS[Math.floor(Math.random() * SHOP_ITEMS.length)]
-      return locationBuyItem(state, item.id)
-    }
-    if (loc.spaceKind === 'office') return aiOfficeAction(state)
-    if (loc.spaceKind === 'manage') return locationManage(state)
-    if (loc.spaceKind === 'casino') return locationGamble(state, CASINO_BETS[0])
-    return clearLocation(state)
+    return applyAiLocation(state)
   }
 
   const current = state.players[state.turnPlayerIndex]
@@ -1082,13 +1311,7 @@ export function autoStep(state: GameState): GameState {
     else s = resolveEventChoice(s, 'accept')
   }
   if (s.pendingLocation && (!current.isHuman || s.autoEnabled)) {
-    const loc = s.pendingLocation
-    if (loc.spaceKind === 'vacant') s = locationBuyVacant(s)
-    else if (loc.spaceKind === 'shop') s = locationBuyItem(s, SHOP_ITEMS[0].id)
-    else if (loc.spaceKind === 'office') s = aiOfficeAction(s)
-    else if (loc.spaceKind === 'manage') s = locationManage(s)
-    else if (loc.spaceKind === 'casino') s = locationGamble(s, CASINO_BETS[0])
-    else s = clearLocation(s)
+    s = applyAiLocation(s)
   }
   if (
     !s.pendingEvent &&
@@ -1122,7 +1345,7 @@ export function reduce(state: GameState, action: GameAction): GameState {
     case 'RESOLVE_EVENT_CHOICE':
       return resolveEventChoice(state, action.choiceId)
     case 'LOCATION_BUY_VACANT':
-      return locationBuyVacant(state)
+      return locationBuyVacant(state, action.relationId)
     case 'LOCATION_BUY_ITEM':
       return locationBuyItem(state, action.itemId)
     case 'LOCATION_POACH':
@@ -1133,8 +1356,18 @@ export function reduce(state: GameState, action: GameAction): GameState {
       return officeAdjust(state, action.ownerId, action.relationId, action.direction)
     case 'OFFICE_POACH':
       return officePoach(state, action.targetPlayerId, action.relationId)
-    case 'LOCATION_MANAGE':
-      return locationManage(state)
+    case 'LOCATION_UPGRADE_SHOP':
+      return locationUpgradeShop(state, action.shopId)
+    case 'LOCATION_REBIND_OPERATOR':
+      return locationRebindOperator(state, action.shopId, action.relationId)
+    case 'LOCATION_PARK_REST':
+      return locationParkRest(state)
+    case 'LOCATION_PARK_CHAT':
+      return locationParkChat(state, action.relationId)
+    case 'LOCATION_BUY_INVEST':
+      return locationBuyInvest(state, action.offerId)
+    case 'LOCATION_SELL_INVEST':
+      return locationSellInvest(state, action.investmentId)
     case 'LOCATION_GAMBLE':
       return locationGamble(state, action.bet)
     case 'LOCATION_SKIP':
@@ -1159,15 +1392,22 @@ export function reduce(state: GameState, action: GameAction): GameState {
     case 'CONFIRM_MARRIAGE': {
       if (state.pendingDecision?.type !== 'marriage') return state
       const d = state.pendingDecision
-      return marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, action.accept)
+      const s = marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, action.accept)
+      return releaseDeferredLocation(s)
     }
     case 'CONFIRM_BIG_SPEND': {
       if (state.pendingDecision?.type !== 'bigSpend') return state
       const d = state.pendingDecision
       let s: GameState = { ...state, pendingDecision: null }
-      if (!action.accept) return pushLog(s, `放弃了「${d.name}」。`)
+      if (!action.accept) {
+        s = pushLog(s, `放弃了「${d.name}」。`)
+        return releaseDeferredLocation(s)
+      }
       const p = s.players.find((x) => x.id === d.playerId)!
-      if (p.cash < d.cost) return pushLog(s, '现金不足。')
+      if (p.cash < d.cost) {
+        s = pushLog(s, '现金不足。')
+        return releaseDeferredLocation(s)
+      }
       if (d.investmentId.startsWith('shop-')) {
         const rng = createRng(s.rngState)
         s = buyShop(
@@ -1176,7 +1416,8 @@ export function reduce(state: GameState, action: GameAction): GameState {
           { type: 'offerShop', name: d.name, baseCashflow: d.cashflow, cost: d.cost },
           () => rng.next(),
         )
-        return { ...s, rngState: rng.state() }
+        s = { ...s, rngState: rng.state() }
+        return releaseDeferredLocation(s)
       }
       s = updatePlayer(s, d.playerId, (pl) => ({
         ...pl,
@@ -1186,7 +1427,8 @@ export function reduce(state: GameState, action: GameAction): GameState {
           { id: d.investmentId, name: d.name, cost: d.cost, cashflow: d.cashflow },
         ],
       }))
-      return pushLog(s, `${p.name} 购入「${d.name}」。`)
+      s = pushLog(s, `${p.name} 购入「${d.name}」。`)
+      return releaseDeferredLocation(s)
     }
     case 'CONFIRM_POACH': {
       if (state.pendingDecision?.type !== 'poach') return state
@@ -1200,9 +1442,10 @@ export function reduce(state: GameState, action: GameAction): GameState {
             r.id === d.relationId ? { ...r, score: Math.min(100, r.score + 5) } : r,
           ),
         }))
-        return pushLog(s, '你花力气留住了关系。')
+        s = pushLog(s, '你花力气留住了关系。')
+        return releaseDeferredLocation(s)
       }
-      return transferRelation(s, d.playerId, d.fromPlayerId, d.relationId)
+      return releaseDeferredLocation(transferRelation(s, d.playerId, d.fromPlayerId, d.relationId))
     }
     case 'RESOLVE_BANKRUPT': {
       if (state.pendingDecision?.type !== 'bankrupt') return state
@@ -1214,7 +1457,8 @@ export function reduce(state: GameState, action: GameAction): GameState {
         liabilities: round2(p.liabilities + d.amount),
         investments: p.investments.slice(0, Math.max(0, p.investments.length - 1)),
       }))
-      return pushLog(s, '负债续命：变卖一笔投资，记账负债。')
+      s = pushLog(s, '负债续命：变卖一笔投资，记账负债。')
+      return releaseDeferredLocation(s)
     }
     case 'END_TURN':
       return endTurn(state)

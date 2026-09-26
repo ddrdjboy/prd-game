@@ -43,4 +43,35 @@ describe('turn loop', () => {
     g = reduce(g, { type: 'END_TURN' })
     expect(g.turnPlayerIndex).not.toBe(before)
   })
+
+  it('END_TURN decays current player relations', () => {
+    let g = createGame({ seatCount: 2, seed: 7, endAge: 45 })
+    g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
+    const humanId = g.players[0].id
+    g = {
+      ...g,
+      players: g.players.map((p) =>
+        p.id === humanId
+          ? {
+              ...p,
+              relations: [
+                {
+                  id: 'r1',
+                  kind: 'network',
+                  name: '阿强',
+                  score: 50,
+                  status: 'stable',
+                  locked: false,
+                },
+              ],
+            }
+          : p,
+      ),
+    }
+    g = clearPendings(g)
+    expect(g.turnPlayerIndex).toBe(0)
+    g = reduce(g, { type: 'END_TURN' })
+    const r = g.players.find((p) => p.id === humanId)!.relations[0]
+    expect(r.score).toBe(46)
+  })
 })

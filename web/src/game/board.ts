@@ -112,6 +112,8 @@ export function spaceHasLocationAction(kind: SpaceKind): boolean {
     kind === 'shop' ||
     kind === 'office' ||
     kind === 'manage' ||
-    kind === 'casino'
+    kind === 'casino' ||
+    kind === 'park' ||
+    kind === 'invest'
   )
 }

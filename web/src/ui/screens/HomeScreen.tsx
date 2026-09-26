@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { TUTORIAL_LINES } from '../tutorial'
 import './HomeScreen.css'
 
 type Props = {
@@ -6,6 +8,8 @@ type Props = {
 }
 
 export function HomeScreen({ onStart, onContinue }: Props) {
+  const [showHelp, setShowHelp] = useState(false)
+
   return (
     <div className="home">
       <div className="home-hero">
@@ -26,8 +30,30 @@ export function HomeScreen({ onStart, onContinue }: Props) {
             继续上次
           </button>
         )}
-        <p className="hint muted">提示：地址加 <code>?fast=1</code> 可在 21 岁快速结算（调试）</p>
+        <button className="ghost" type="button" onClick={() => setShowHelp(true)}>
+          玩法说明
+        </button>
+        <p className="hint muted">
+          提示：地址加 <code>?fast=1</code> 可在 21 岁快速结算（调试）
+        </p>
       </div>
+      {showHelp && (
+        <div className="modal">
+          <div className="modal-card panel">
+            <h3>玩法说明</h3>
+            <ol className="tutorial-list">
+              {TUTORIAL_LINES.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+            <div className="modal-actions">
+              <button type="button" className="primary" onClick={() => setShowHelp(false)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

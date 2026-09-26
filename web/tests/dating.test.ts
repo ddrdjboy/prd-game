@@ -78,10 +78,10 @@ describe('dating flow', () => {
     expect(after.logs.some((l) => l.text.includes('可约会·交友'))).toBe(true)
   })
 
-  it('AI pick prefers richest affordable venue', () => {
+  it('AI pick prefers cheapest affordable venue', () => {
     const g = withRomance(0.4)
     const pick = pickAiDate(g.players[0])
-    expect(pick?.venueId).toBe('dinner')
+    expect(pick?.venueId).toBe('park')
     expect(DATE_VENUES.find((v) => v.id === pick!.venueId)!.cost).toBeLessThanOrEqual(0.4)
     expect(dateableRelations(g.players[0])).toHaveLength(1)
   })

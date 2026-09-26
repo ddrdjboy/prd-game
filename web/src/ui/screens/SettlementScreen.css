@@ -56,3 +56,31 @@
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+@media (max-width: 640px) {
+  .settle {
+    padding: 0.5rem 0 1.5rem;
+  }
+
+  .settle h1 {
+    font-size: clamp(1.8rem, 9vw, 2.4rem);
+  }
+
+  .grade {
+    font-size: 1.2rem;
+  }
+
+  .radar {
+    width: min(180px, 55vw);
+    height: min(180px, 55vw);
+  }
+
+  .score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settle > button.primary {
+    width: 100%;
+    min-height: 48px;
+  }
+}

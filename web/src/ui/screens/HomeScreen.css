@@ -45,3 +45,36 @@
 .hint code {
   color: var(--accent);
 }
+
+@media (max-width: 640px) {
+  .home {
+    min-height: auto;
+    padding: 0.5rem 0 1rem;
+    align-content: start;
+  }
+
+  .home-hero h1 {
+    font-size: clamp(2.2rem, 12vw, 3.2rem);
+  }
+
+  .lede {
+    font-size: 1rem;
+    margin-bottom: 1.15rem;
+  }
+
+  .seat-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .seat-row button,
+  .home-hero > button.ghost {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .hint {
+    margin-top: 1.15rem;
+    font-size: 0.8rem;
+  }
+}

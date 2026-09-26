@@ -29,6 +29,16 @@
   min-width: 180px;
 }
 
+.progress-dual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.progress-track {
+  min-width: 0;
+}
+
 .progress-label {
   font-size: 0.75rem;
   color: var(--muted);
@@ -40,6 +50,15 @@
   background: #0c1612;
   border-radius: 999px;
   overflow: hidden;
+}
+
+.progress-bar.life {
+  height: 5px;
+  background: #121a16;
+}
+
+.progress-bar.life .progress-fill {
+  background: linear-gradient(90deg, #5a7a6a, #8fb39a);
 }
 
 .progress-fill {
@@ -54,4 +73,83 @@
 
 .top-actions button {
   padding: 0.35rem 0.7rem;
+}
+
+.top-actions .btn-short {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 0.18rem 0.4rem;
+    align-items: center;
+    padding: 0.28rem 0.4rem;
+    border-radius: 8px;
+  }
+
+  .brand {
+    gap: 0;
+    min-width: 0;
+  }
+
+  .brand strong {
+    display: none;
+  }
+
+  .brand .muted {
+    font-size: 0.78rem;
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .progress-wrap {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    flex: none;
+  }
+
+  .progress-label {
+    font-size: 0.58rem;
+    margin-bottom: 0.06rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .progress-dual {
+    gap: 0.16rem;
+  }
+
+  .progress-bar {
+    height: 4px;
+  }
+
+  .progress-bar.life {
+    height: 3px;
+  }
+
+  .top-actions {
+    gap: 0.22rem;
+    margin-left: 0;
+  }
+
+  .top-actions button {
+    min-height: 26px;
+    height: 26px;
+    padding: 0 0.45rem;
+    font-size: 0.68rem;
+    border-radius: 5px;
+  }
+
+  .top-actions .btn-full {
+    display: none;
+  }
+
+  .top-actions .btn-short {
+    display: inline;
+  }
 }

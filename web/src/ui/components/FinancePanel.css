@@ -9,6 +9,65 @@
   font-size: 0.8rem;
 }
 
+.finance.collapsible {
+  padding: 0;
+}
+
+.finance-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  padding: 0.55rem 0.75rem;
+  min-height: 44px;
+}
+
+.finance-summary::-webkit-details-marker {
+  display: none;
+}
+
+.finance-summary::after {
+  content: '▾';
+  color: var(--muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.finance.collapsible[open] > .finance-summary::after {
+  content: '▴';
+}
+
+.finance-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.finance-summary-main strong {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.finance-summary-meta {
+  font-size: 0.75rem;
+}
+
+.finance-summary-stats {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.finance.collapsible .finance-body {
+  padding: 0 0.75rem 0.65rem;
+}
+
 .finance-body {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
@@ -64,5 +123,57 @@
 
   .finance dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 641px) {
+  .finance-summary {
+    cursor: default;
+    pointer-events: none;
+    min-height: 0;
+    padding: 0.65rem 0.75rem 0.25rem;
+  }
+
+  .finance-summary::after {
+    display: none;
+  }
+
+  .finance-summary-stats {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .finance-summary {
+    min-height: 0;
+    padding: 0.28rem 0.45rem;
+    gap: 0.15rem 0.5rem;
+    align-items: center;
+  }
+
+  .finance-summary-main strong {
+    font-size: 0.78rem;
+  }
+
+  .finance-summary-meta {
+    display: none;
+  }
+
+  .finance-summary-stats {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.66rem;
+  }
+
+  .finance-summary::after {
+    font-size: 0.7rem;
+  }
+
+  .rel-list {
+    max-height: 5.5rem;
   }
 }

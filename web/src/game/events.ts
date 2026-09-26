@@ -49,38 +49,41 @@ export function canAffordChoice(cash: number, effects: EventEffect[]): boolean {
   return cash + 1e-9 >= choiceCashCost(effects)
 }
 
-/** AI / 自动季选策 */
+/** AI / 自动季选策；若全部付不起则返回 `__skip__`（空手过关） */
 export function pickEventChoice(
   event: GameEvent,
   player: Pick<PlayerState, 'cash' | 'aiStyle'>,
 ): string {
   const style = player.aiStyle ?? 'steady'
-  const raise = event.choices.find((x) => x.id === 'raise')
-  const accept = event.choices.find((x) => x.id === 'accept')
-  const decline = event.choices.find((x) => x.id === 'decline')
-  const afford = (ch: EventChoice | undefined) =>
-    ch ? canAffordChoice(player.cash, ch.effects) : false
+  const affordable = event.choices.filter((ch) => canAffordChoice(player.cash, ch.effects))
+  if (!affordable.length) return '__skip__'
+
+  const raise = affordable.find((x) => x.id === 'raise')
+  const accept = affordable.find((x) => x.id === 'accept')
+  const decline = affordable.find((x) => x.id === 'decline')
 
   if (style === 'aggressive') {
-    if (raise && afford(raise)) return raise.id
-    if (accept && afford(accept)) return accept.id
-    return decline?.id ?? event.choices[0].id
+    if (raise) return raise.id
+    if (accept) return accept.id
+    return decline?.id ?? affordable[0].id
   }
 
   if (style === 'social') {
     if (event.kind === 'relation') {
-      if (raise && afford(raise)) return raise.id
+      if (raise) return raise.id
       if (accept) return accept.id
     }
-    if (accept && afford(accept)) return accept.id
-    return decline?.id ?? accept?.id ?? event.choices[0].id
+    if (accept) return accept.id
+    if (decline) return decline.id
+    return affordable[0].id
   }
 
   // steady
-  if (accept && afford(accept)) return accept.id
+  if (accept) return accept.id
   if (decline) return decline.id
-  return event.choices[0].id
+  return affordable[0].id
 }
+
 
 export const EVENTS: GameEvent[] = [
   // ——— 机会 ———
@@ -254,7 +257,7 @@ export const EVENTS: GameEvent[] = [
     text: '跨境消费可能吃亏。',
     choices: [
       c('accept', '认栽换汇', [{ type: 'cash', delta: -0.15 }]),
-      c('decline', '推迟消费', [{ type: 'cash', delta: -0.05 }]),
+      c('decline', '推迟消费', []),
     ],
   },
   {
@@ -298,7 +301,7 @@ export const EVENTS: GameEvent[] = [
     text: '旧手机罢工，要不要换新？',
     choices: [
       c('accept', '换入门机', [{ type: 'cash', delta: -0.4 }]),
-      c('decline', '先修一修', [{ type: 'cash', delta: -0.1 }]),
+      c('decline', '先修一修', []),
       c('raise', '上旗舰', [{ type: 'cash', delta: -0.7 }, { type: 'boostRelation', amount: 3 }]),
     ],
   },
@@ -309,7 +312,7 @@ export const EVENTS: GameEvent[] = [
     text: '随礼只能硬着头皮。',
     choices: [
       c('accept', '正常随礼', [{ type: 'cash', delta: -0.25 }, { type: 'boostRelation', amount: 5, kind: 'network' }]),
-      c('decline', '象征性一点', [{ type: 'cash', delta: -0.1 }, { type: 'boostRelation', amount: -2, kind: 'network' }]),
+      c('decline', '象征性一点', [{ type: 'boostRelation', amount: -2, kind: 'network' }]),
       c('raise', '大气一笔', [{ type: 'cash', delta: -0.45 }, { type: 'boostRelation', amount: 10, kind: 'network' }]),
     ],
   },
@@ -341,7 +344,7 @@ export const EVENTS: GameEvent[] = [
     text: '牙医账单不讲情面。',
     choices: [
       c('accept', '治完', [{ type: 'cash', delta: -0.35 }]),
-      c('decline', '先止痛', [{ type: 'cash', delta: -0.12 }]),
+      c('decline', '先止痛', []),
       c('raise', '全口护理', [{ type: 'cash', delta: -0.55 }]),
     ],
   },
@@ -557,7 +560,7 @@ export const EVENTS: GameEvent[] = [
     text: '得想想怎么过。',
     choices: [
       c('accept', '硬撑促销', [{ type: 'cash', delta: -0.15 }]),
-      c('decline', '收缩开支', [{ type: 'cash', delta: -0.05 }]),
+      c('decline', '收缩开支', []),
       c('raise', '投广告翻盘', [
         { type: 'cash', delta: -0.4 },
         { type: 'cash', delta: 0.35 },
@@ -624,7 +627,7 @@ export const EVENTS: GameEvent[] = [
     text: '罚款虽小刺痛不小。',
     choices: [
       c('accept', '认罚整改', [{ type: 'cash', delta: -0.2 }]),
-      c('decline', '讨价还价', [{ type: 'cash', delta: -0.12 }]),
+      c('decline', '讨价还价', []),
       c('raise', '一次到位改造', [{ type: 'cash', delta: -0.4 }, { type: 'boostRelation', amount: 3 }]),
     ],
   },
@@ -801,7 +804,7 @@ export const EVENTS: GameEvent[] = [
     text: '利息咬了一口。',
     choices: [
       c('accept', '还一点', [{ type: 'cash', delta: -0.1 }, { type: 'liability', delta: -0.1 }]),
-      c('decline', '先拖着', [{ type: 'cash', delta: -0.05 }]),
+      c('decline', '先拖着', []),
       c('raise', '多还一截', [{ type: 'cash', delta: -0.3 }, { type: 'liability', delta: -0.3 }]),
     ],
   },
@@ -949,7 +952,7 @@ export const EVENTS: GameEvent[] = [
     text: '你把支出又划掉两行。',
     choices: [
       c('accept', '执行省钱', [{ type: 'cash', delta: 0.1 }]),
-      c('decline', '允许自己花一点', [{ type: 'cash', delta: -0.05 }]),
+      c('decline', '允许自己花一点', []),
     ],
   },
   {
@@ -959,7 +962,7 @@ export const EVENTS: GameEvent[] = [
     text: '有人晒旅居，你选择？',
     choices: [
       c('accept', '继续攒', []),
-      c('decline', '跟风旅居梦', [{ type: 'cash', delta: -0.2 }, { type: 'boostRelation', amount: 3 }]),
+      c('decline', '跟风旅居梦', [{ type: 'boostRelation', amount: 3 }]),
     ],
   },
   {

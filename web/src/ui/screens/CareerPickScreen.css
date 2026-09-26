@@ -33,3 +33,20 @@
 .career-card .trait {
   color: var(--accent);
 }
+
+@media (max-width: 640px) {
+  .career-pick {
+    padding: 0.25rem 0 1.25rem;
+  }
+
+  .career-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .career-card {
+    min-height: 0;
+    padding: 1rem 1.1rem;
+  }
+}

@@ -59,12 +59,16 @@ describe('event choices', () => {
     expect(choiceCashCost(raise.effects)).toBeGreaterThan(choiceCashCost(accept.effects))
   })
 
-  it('raise is blocked when cash is insufficient', () => {
+  it('unaffordable raise falls back instead of sticking the event', () => {
     const g = withPending('opp8', 0.5)
     const after = reduce(g, { type: 'RESOLVE_EVENT_CHOICE', choiceId: 'raise' })
-    expect(after.pendingEvent).toBeTruthy()
+    expect(after.pendingEvent).toBeNull()
     expect(after.players[0].shops.length).toBe(0)
-    expect(after.logs.some((l) => l.text.includes('现金不足'))).toBe(true)
+    expect(
+      after.logs.some(
+        (l) => l.text.includes('空手过关') || l.text.includes('选择「'),
+      ),
+    ).toBe(true)
   })
 
   it('aggressive AI prefers raise when affordable', () => {

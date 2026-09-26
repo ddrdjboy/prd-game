@@ -103,6 +103,10 @@ export interface PlayerState {
   actionPoints: number
   aiStyle: AiStyle | null
   trait: CareerTrait | null
+  /** 剩余自己的回合数，>0 时不可挖角 */
+  poachCooldown: number
+  /** 本回合已维护（约会/公园/事务所升温）的关系，结束回合不衰减 */
+  maintainedRelationIds: string[]
 }
 
 export interface FinanceSnapshot {
@@ -214,13 +218,18 @@ export type GameAction =
   | { type: 'ANIM_STEP' }
   | { type: 'FINISH_MOVE' }
   | { type: 'RESOLVE_EVENT_CHOICE'; choiceId: string }
-  | { type: 'LOCATION_BUY_VACANT' }
+  | { type: 'LOCATION_BUY_VACANT'; relationId: string }
   | { type: 'LOCATION_BUY_ITEM'; itemId: string }
   | { type: 'LOCATION_POACH' }
   | { type: 'OFFICE_RECOMMEND'; kind: 'network' | 'romance' }
   | { type: 'OFFICE_ADJUST'; ownerId: string; relationId: string; direction: 'up' | 'down' }
   | { type: 'OFFICE_POACH'; targetPlayerId: string; relationId: string }
-  | { type: 'LOCATION_MANAGE' }
+  | { type: 'LOCATION_UPGRADE_SHOP'; shopId: string }
+  | { type: 'LOCATION_REBIND_OPERATOR'; shopId: string; relationId: string }
+  | { type: 'LOCATION_PARK_REST' }
+  | { type: 'LOCATION_PARK_CHAT'; relationId: string }
+  | { type: 'LOCATION_BUY_INVEST'; offerId: string }
+  | { type: 'LOCATION_SELL_INVEST'; investmentId: string }
   | { type: 'LOCATION_GAMBLE'; bet: number }
   | { type: 'LOCATION_SKIP' }
   | { type: 'SPEND_ACTION'; action: 'date' }

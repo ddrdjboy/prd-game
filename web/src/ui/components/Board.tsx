@@ -11,6 +11,8 @@ type Props = {
   forcedTrack?: Track | null
   slotSpin?: SlotSpin | null
   lastReels?: [number, number, number] | null
+  comboLabel?: string | null
+  comboFlash?: boolean
 }
 
 function SquareRing({
@@ -95,6 +97,8 @@ export function Board({
   forcedTrack = null,
   slotSpin = null,
   lastReels = null,
+  comboLabel = null,
+  comboFlash = false,
 }: Props) {
   const [viewTrack, setViewTrack] = useState<Track>('worker')
   const worker = buildTrack('worker')
@@ -106,7 +110,7 @@ export function Board({
 
   const active = forcedTrack ?? viewTrack
   const locked = Boolean(forcedTrack)
-  const spinning = Boolean(slotSpin)
+  const spinning = Boolean(slotSpin) && !comboFlash
 
   return (
     <div className="board panel">
@@ -156,6 +160,8 @@ export function Board({
               lastReels={lastReels}
               trackLabel={active === 'worker' ? '打工人圈' : '投资人圈'}
               spinning={spinning}
+              comboLabel={comboLabel}
+              comboFlash={comboFlash}
             />
           </div>
         </div>

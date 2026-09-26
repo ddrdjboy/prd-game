@@ -20,6 +20,8 @@ function basePlayer(over: Partial<PlayerState> = {}): PlayerState {
     actionPoints: 1,
     aiStyle: null,
     trait: null,
+    poachCooldown: 0,
+    maintainedRelationIds: [],
     ...over,
   }
 }

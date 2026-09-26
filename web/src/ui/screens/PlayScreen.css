@@ -7,6 +7,34 @@
   gap: 0.4rem;
 }
 
+.moment-banner {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  margin: 0 auto;
+  max-width: min(520px, 94%);
+  padding: 0.45rem 0.9rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  color: #1a1208;
+  background: linear-gradient(90deg, #e2b14a, #f0d078);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  animation: moment-in 0.28s ease-out;
+}
+
+@keyframes moment-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .play-grid {
   display: flex;
   flex-direction: column;
@@ -35,15 +63,84 @@
   flex-shrink: 0;
 }
 
-.controls .control-row {
+.controls {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.25rem;
+}
+
+.control-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  width: 100%;
+  font-size: 0.8rem;
+  order: 10;
+}
+
+.control-spin {
+  width: auto;
+}
+
+.control-secondary {
+  display: contents;
 }
 
 .controls button {
   padding: 0.4rem 0.75rem;
+}
+
+.btn-short {
+  display: none;
+}
+
+.log.collapsible {
+  padding: 0;
+}
+
+.log-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  padding: 0.45rem 0.75rem;
+  min-height: 40px;
+}
+
+.log-summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-summary::after {
+  content: '▾';
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.log.collapsible[open] > .log-summary::after {
+  content: '▴';
+}
+
+.log-summary strong {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.log-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log.collapsible ul {
+  padding: 0 0.75rem 0.5rem;
 }
 
 .log ul {
@@ -70,10 +167,15 @@
   place-items: center;
   z-index: 20;
   padding: 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-card {
   width: min(420px, 100%);
+  max-height: min(90dvh, 100%);
+  overflow: auto;
 }
 
 .slot-event-hint {
@@ -125,4 +227,136 @@
   margin: 0.75rem 0 0;
   padding-left: 1.1rem;
   line-height: 1.7;
+}
+
+.shop-detail-list .warn,
+.shop-item em.warn {
+  color: #b45309;
+  font-style: normal;
+}
+
+@media (min-width: 641px) {
+  .log-summary {
+    cursor: default;
+    pointer-events: none;
+    min-height: 0;
+    padding: 0.55rem 0.75rem 0.2rem;
+  }
+
+  .log-summary::after,
+  .log-preview {
+    display: none;
+  }
+}
+
+/* —— 竖屏：棋盘优先，操作条收成 HUD —— */
+@media (max-width: 640px) {
+  .play {
+    gap: 0.16rem;
+  }
+
+  .play-grid {
+    flex: 1 1 auto;
+    gap: 0.16rem;
+    min-height: 0;
+  }
+
+  .play-grid .board {
+    flex: 1 1 auto;
+    min-height: min(calc(100vw - 0.85rem), calc(100dvh - 10.75rem));
+    padding: 0.3rem 0.35rem 0.35rem;
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.32rem 0.4rem 0.36rem;
+    border-radius: 8px;
+  }
+
+  .control-status {
+    order: 0;
+    width: 100%;
+    justify-content: space-between;
+    font-size: 0.66rem;
+    margin: 0 0 0.22rem;
+    letter-spacing: 0.02em;
+  }
+
+  .control-spin {
+    order: 1;
+    width: 100%;
+    min-height: 34px;
+    height: 34px;
+    padding: 0 0.7rem;
+    margin: 0 0 0.22rem;
+    font-size: 0.84rem;
+    border-radius: 7px;
+  }
+
+  .control-secondary {
+    order: 2;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.22rem;
+    width: 100%;
+  }
+
+  .control-secondary > button {
+    min-height: 30px;
+    height: 30px;
+    padding: 0 0.15rem;
+    font-size: 0.7rem;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  .control-secondary > button.primary {
+    grid-column: 1 / -1;
+    min-height: 32px;
+    height: 32px;
+  }
+
+  .btn-full {
+    display: none;
+  }
+
+  .btn-short {
+    display: inline;
+  }
+
+  .log.collapsible {
+    border-radius: 8px;
+  }
+
+  .log-summary {
+    min-height: 0;
+    padding: 0.22rem 0.45rem;
+    gap: 0.3rem;
+  }
+
+  .log-summary strong {
+    font-size: 0.72rem;
+  }
+
+  .log-preview {
+    font-size: 0.66rem;
+  }
+
+  .log ul {
+    max-height: 4.2rem;
+    font-size: 0.7rem;
+  }
+
+  .shop-item {
+    min-height: 40px;
+    padding: 0.55rem 0.65rem;
+  }
+
+  .modal-actions button {
+    min-height: 40px;
+    flex: 1 1 auto;
+  }
 }

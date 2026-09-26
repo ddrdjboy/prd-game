@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react'
-import { MOVE_STEP_MS, SLOT_SPIN_MS } from '../../game/config'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  INVESTOR_START_BONUS,
+  MOMENT_BANNER_MS,
+  MOVE_STEP_MS,
+  SLOT_SPIN_MS,
+  getComboHoldMs,
+} from '../../game/config'
 import {
   DATE_VENUES,
   dateBoostFor,
@@ -8,8 +14,9 @@ import {
   relationStatusLabel,
 } from '../../game/dating'
 import { canAffordChoice, choiceCashCost, getEvent } from '../../game/events'
-import { shopBookValue, shopCashflow } from '../../game/finance'
-import { SHOP_ITEMS, VACANT_COST } from '../../game/location'
+import { calcFinance, shopBookValue, shopCashflow } from '../../game/finance'
+import { SHOP_ITEMS, VACANT_COST, VACANT_HIRE_EXTRA, investOffersFor, PARK_REST_CASH, PARK_CHAT_BOOST, INVEST_SELL_RATIO } from '../../game/location'
+import { willBreakNextDecay } from '../../game/relations'
 import {
   OFFICE_DOWN_COST,
   OFFICE_POACH_COST,
@@ -20,10 +27,12 @@ import {
   poachSuccessChance,
   poachableTargets,
 } from '../../game/office'
-import type { GameAction, GameState, RelationKind } from '../../game/types'
+import { resolveSlotEvent } from '../../game/slotEvents'
+import type { AutoSensitivity, GameAction, GameState, RelationKind } from '../../game/types'
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
 import { TopBar } from '../components/TopBar'
+import { TUTORIAL_LINES, hasSeenTutorial, markTutorialSeen } from '../tutorial'
 import './PlayScreen.css'
 
 type Props = {
@@ -48,6 +57,12 @@ type OfficeUi =
   | { step: 'poachPlayer' }
   | { step: 'poachRel'; targetPlayerId: string; targetName: string }
 
+type ManageUi =
+  | { step: 'menu' }
+  | { step: 'upgrade' }
+  | { step: 'rebindShop' }
+  | { step: 'rebindOp'; shopId: string; shopName: string }
+
 export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const human = state.players[0]
   const isHumanTurn = state.players[state.turnPlayerIndex]?.isHuman
@@ -56,6 +71,27 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const [shopPanel, setShopPanel] = useState<ShopPanel | null>(null)
   const [friendPanel, setFriendPanel] = useState<FriendPanel | null>(null)
   const [officeUi, setOfficeUi] = useState<OfficeUi | null>(null)
+  const [manageUi, setManageUi] = useState<ManageUi | null>(null)
+  const [showTutorial, setShowTutorial] = useState(() => !hasSeenTutorial())
+  const [comboFlash, setComboFlash] = useState<string | null>(null)
+  const [momentBanner, setMomentBanner] = useState<string | null>(null)
+  const logRef = useRef<HTMLDetailsElement>(null)
+  const seenLogId = useRef<string | null>(null)
+  const recentLogs = [...state.logs].reverse().slice(0, 12)
+  const latestLog = recentLogs[0]?.text
+
+  useLayoutEffect(() => {
+    const el = logRef.current
+    if (!el) return
+    // keep existing behavior below
+    const mq = window.matchMedia('(min-width: 641px)')
+    const sync = () => {
+      el.open = mq.matches
+    }
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
   const browseOpen = Boolean(shopPanel || friendPanel)
   const busy = Boolean(
     state.pendingEvent ||
@@ -63,24 +99,60 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       state.pendingLocation ||
       state.pendingDate ||
       moving ||
-      spinning,
+      spinning ||
+      comboFlash,
   )
 
   useEffect(() => {
     if (state.pendingLocation?.spaceKind === 'office') setOfficeUi({ step: 'menu' })
     else setOfficeUi(null)
+    if (state.pendingLocation?.spaceKind === 'manage') setManageUi({ step: 'menu' })
+    else setManageUi(null)
   }, [state.pendingLocation])
 
-  // 777 拉霸动画
+  // 777 拉霸动画：有连爆时多停一拍再走棋
   useEffect(() => {
     if (!state.slotSpin) return
     if (state.autoEnabled) {
       dispatch({ type: 'FINISH_SLOT' })
       return
     }
-    const t = window.setTimeout(() => dispatch({ type: 'FINISH_SLOT' }), SLOT_SPIN_MS)
-    return () => window.clearTimeout(t)
+    const spin = state.slotSpin
+    const hold = getComboHoldMs()
+    const combo = resolveSlotEvent(spin.reels, spin.track).comboLabel
+    let cancelled = false
+    let holdTimer: number | undefined
+    const spinTimer = window.setTimeout(() => {
+      if (cancelled) return
+      if (combo && hold > 0) {
+        setComboFlash(combo)
+        holdTimer = window.setTimeout(() => {
+          if (cancelled) return
+          setComboFlash(null)
+          dispatch({ type: 'FINISH_SLOT' })
+        }, hold)
+      } else {
+        dispatch({ type: 'FINISH_SLOT' })
+      }
+    }, SLOT_SPIN_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(spinTimer)
+      if (holdTimer != null) window.clearTimeout(holdTimer)
+    }
   }, [state.slotSpin, state.autoEnabled, dispatch])
+
+  // 发薪 / 晋级瞬间横幅
+  useEffect(() => {
+    const last = state.logs[state.logs.length - 1]
+    if (!last || last.id === seenLogId.current) return
+    seenLogId.current = last.id
+    if (last.text.includes('结算现金流') || last.text.includes('身份转变')) {
+      setMomentBanner(last.text.replace(/。$/, ''))
+      const t = window.setTimeout(() => setMomentBanner(null), MOMENT_BANNER_MS)
+      return () => window.clearTimeout(t)
+    }
+  }, [state.logs])
 
   // 逐格走棋动画
   useEffect(() => {
@@ -107,6 +179,23 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     state.moveAnimation?.playerId ??
     state.players[state.turnPlayerIndex]?.id
   const forcedTrack = state.slotSpin?.track ?? state.moveAnimation?.track ?? null
+  const comboLabelLive =
+    comboFlash ??
+    (state.slotSpin
+      ? resolveSlotEvent(state.slotSpin.reels, state.slotSpin.track).comboLabel
+      : null)
+
+  const cycleSensitivity = () => {
+    const order: AutoSensitivity[] = ['low', 'standard', 'high']
+    const i = order.indexOf(state.autoSensitivity)
+    const next = order[(i + 1) % order.length]
+    dispatch({ type: 'SET_SENSITIVITY', value: next })
+  }
+
+  const dismissTutorial = () => {
+    markTutorialSeen()
+    setShowTutorial(false)
+  }
 
   return (
     <div className="play">
@@ -114,7 +203,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         state={state}
         onToggleAuto={() => dispatch({ type: 'SET_AUTO', enabled: !state.autoEnabled })}
         onAutoRun={onAutoRun}
+        onCycleSensitivity={cycleSensitivity}
       />
+      {momentBanner && (
+        <div className="moment-banner" role="status">
+          {momentBanner}
+        </div>
+      )}
+      {showTutorial && (
+        <div className="modal">
+          <div className="modal-card panel">
+            <h3>90 秒上手</h3>
+            <ol className="tutorial-list">
+              {TUTORIAL_LINES.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+            <div className="modal-actions">
+              <button type="button" className="primary" onClick={dismissTutorial}>
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="play-grid">
         <Board
           players={state.players}
@@ -122,28 +234,38 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           forcedTrack={forcedTrack}
           slotSpin={state.slotSpin}
           lastReels={state.lastReels}
+          comboLabel={comboLabelLive}
+          comboFlash={Boolean(comboFlash)}
         />
         <FinancePanel player={human} />
       </div>
 
       <div className="controls panel">
-        <div className="control-row">
-          <button
-            className="primary"
-            disabled={!isHumanTurn || busy || state.autoEnabled}
-            onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
-          >
-            {spinning
-              ? '拉霸转动中…'
-              : moving
-                ? '行走中…'
-                : `777 拉霸${state.lastDice ? `（上次 ${state.lastReels?.join('-') ?? state.lastDice} 步）` : ''}`}
-          </button>
+        <div className="control-status muted">
+          <span>AP {human.actionPoints}</span>
+          <span>
+            {state.players[state.turnPlayerIndex]?.name}
+            {moving ? ' · 移动中' : spinning ? ' · 拉霸中' : ''}
+          </span>
+        </div>
+        <button
+          className="primary control-spin"
+          disabled={!isHumanTurn || busy || state.autoEnabled}
+          onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
+        >
+          {spinning
+            ? '拉霸中…'
+            : moving
+              ? '行走中…'
+              : `777 拉霸${state.lastDice ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
+        </button>
+        <div className="control-secondary">
           <button
             disabled={!isHumanTurn || busy || human.actionPoints <= 0}
             onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
           >
-            约会·交友
+            <span className="btn-full">约会·交友</span>
+            <span className="btn-short">约会</span>
           </button>
           <button
             disabled={busy || browseOpen}
@@ -161,7 +283,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             disabled={!isHumanTurn || busy}
             onClick={() => dispatch({ type: 'END_TURN' })}
           >
-            结束回合
+            <span className="btn-full">结束回合</span>
+            <span className="btn-short">结束</span>
           </button>
           {!isHumanTurn && !moving && !spinning && (
             <button className="primary" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
@@ -169,10 +292,6 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             </button>
           )}
         </div>
-        <p className="muted">
-          行动点 {human.actionPoints} · 当前回合：{state.players[state.turnPlayerIndex]?.name}
-          {moving ? ' · 棋子移动中' : ''}
-        </p>
       </div>
 
       {state.pendingEvent && (() => {
@@ -203,26 +322,66 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     </button>
                   )
                 })}
+                {ev &&
+                  ev.choices.every((ch) => !canAffordChoice(cash, ch.effects)) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        dispatch({ type: 'RESOLVE_EVENT_CHOICE', choiceId: '__skip__' })
+                      }
+                    >
+                      手头太紧，空手过关
+                    </button>
+                  )}
               </div>
             </div>
           </div>
         )
       })()}
 
-      {state.pendingLocation && (
+      {state.pendingLocation && !state.pendingDecision && (
         <div className="modal">
           <div className="modal-card panel location-card">
             <p className="slot-event-hint">落点 · {state.pendingLocation.label}</p>
             {state.pendingLocation.spaceKind === 'vacant' && (
               <>
                 <h3>空地待售</h3>
-                <p>花 {VACANT_COST} 万买下并开店（需有关系人经营）。</p>
-                <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'LOCATION_BUY_VACANT' })}>
-                    购置开店
+                <p>花 {VACANT_COST} 万开店；没人脉可加 {VACANT_HIRE_EXTRA} 万雇临时店员。</p>
+                {human.relations.filter((r) => r.status !== 'broken').length === 0 && (
+                  <p className="muted">
+                    暂无人脉可托管。可雇临时店员，或先去事件 / 事务所结识后再来。
+                  </p>
+                )}
+                <div className="shop-list">
+                  {human.relations
+                    .filter((r) => r.status !== 'broken')
+                    .map((r) => (
+                      <button
+                        key={r.id}
+                        className="shop-item"
+                        disabled={human.cash + 1e-9 < VACANT_COST}
+                        onClick={() =>
+                          dispatch({ type: 'LOCATION_BUY_VACANT', relationId: r.id })
+                        }
+                      >
+                        <strong>{r.name}</strong>
+                        <span>好感 {r.score}</span>
+                        <em>购置并由其经营</em>
+                      </button>
+                    ))}
+                  <button
+                    className="shop-item"
+                    disabled={human.cash + 1e-9 < VACANT_COST + VACANT_HIRE_EXTRA}
+                    onClick={() =>
+                      dispatch({ type: 'LOCATION_BUY_VACANT', relationId: '__hire__' })
+                    }
+                  >
+                    <strong>雇临时店员开店</strong>
+                    <span>{(VACANT_COST + VACANT_HIRE_EXTRA).toFixed(2)} 万</span>
+                    <em>自动结识一名店员当经营者</em>
                   </button>
-                  <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>走开</button>
                 </div>
+                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>走开</button>
               </>
             )}
             {state.pendingLocation.spaceKind === 'shop' && (
@@ -275,12 +434,17 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         className="shop-item"
                         disabled={
                           human.cash + 1e-9 < OFFICE_POACH_COST ||
+                          human.poachCooldown > 0 ||
                           poachableTargets(human.id, state.players).length === 0
                         }
                         onClick={() => setOfficeUi({ step: 'poachPlayer' })}
                       >
                         <strong>挖角抢人</strong>
-                        <span>{OFFICE_POACH_COST} 万</span>
+                        <span>
+                          {human.poachCooldown > 0
+                            ? `冷却 ${human.poachCooldown}`
+                            : `${OFFICE_POACH_COST} 万`}
+                        </span>
                         <em>选手家再选目标关系</em>
                       </button>
                     </div>
@@ -448,16 +612,112 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 )}
               </>
             )}
-            {state.pendingLocation.spaceKind === 'manage' && (
+            {state.pendingLocation.spaceKind === 'manage' && manageUi && (
               <>
-                <h3>经营区</h3>
-                <p>花 0.2 万升级/加码你的店铺。</p>
-                <div className="modal-actions">
-                  <button className="primary" onClick={() => dispatch({ type: 'LOCATION_MANAGE' })}>
-                    经营升级
-                  </button>
-                  <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>下次再说</button>
-                </div>
+                {manageUi.step === 'menu' && (
+                  <>
+                    <h3>经营区</h3>
+                    <p className="muted">升级单店（0.2 万）或免费更换经营者。</p>
+                    <div className="shop-list">
+                      <button
+                        className="shop-item"
+                        disabled={!human.shops.length}
+                        onClick={() => setManageUi({ step: 'upgrade' })}
+                      >
+                        <strong>升级店铺</strong>
+                        <span>0.2 万</span>
+                        <em>选一家加码</em>
+                      </button>
+                      <button
+                        className="shop-item"
+                        disabled={!human.shops.length}
+                        onClick={() => setManageUi({ step: 'rebindShop' })}
+                      >
+                        <strong>更换经营者</strong>
+                        <span>免费</span>
+                        <em>把店交给别人</em>
+                      </button>
+                    </div>
+                    <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>下次再说</button>
+                  </>
+                )}
+                {manageUi.step === 'upgrade' && (
+                  <>
+                    <h3>升级哪家店？</h3>
+                    <div className="shop-list">
+                      {human.shops.map((shop) => (
+                        <button
+                          key={shop.id}
+                          className="shop-item"
+                          disabled={human.cash + 1e-9 < 0.2}
+                          onClick={() =>
+                            dispatch({ type: 'LOCATION_UPGRADE_SHOP', shopId: shop.id })
+                          }
+                        >
+                          <strong>{shop.name}</strong>
+                          <span>Lv.{shop.level}</span>
+                          <em>CF {shop.baseCashflow}</em>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
+                  </>
+                )}
+                {manageUi.step === 'rebindShop' && (
+                  <>
+                    <h3>换绑：选店铺</h3>
+                    <div className="shop-list">
+                      {human.shops.map((shop) => {
+                        const op = human.relations.find((r) => r.id === shop.operatorRelationId)
+                        return (
+                          <button
+                            key={shop.id}
+                            className="shop-item"
+                            onClick={() =>
+                              setManageUi({
+                                step: 'rebindOp',
+                                shopId: shop.id,
+                                shopName: shop.name,
+                              })
+                            }
+                          >
+                            <strong>{shop.name}</strong>
+                            <span>现经营者</span>
+                            <em>{op?.name ?? '无人'}</em>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
+                  </>
+                )}
+                {manageUi.step === 'rebindOp' && (
+                  <>
+                    <h3>「{manageUi.shopName}」交给谁？</h3>
+                    <div className="shop-list">
+                      {human.relations
+                        .filter((r) => r.status !== 'broken')
+                        .map((r) => (
+                          <button
+                            key={r.id}
+                            className="shop-item"
+                            onClick={() =>
+                              dispatch({
+                                type: 'LOCATION_REBIND_OPERATOR',
+                                shopId: manageUi.shopId,
+                                relationId: r.id,
+                              })
+                            }
+                          >
+                            <strong>{r.name}</strong>
+                            <span>好感 {r.score}</span>
+                            <em>{relationStatusLabel(r.status)}</em>
+                          </button>
+                        ))}
+                    </div>
+                    <button onClick={() => setManageUi({ step: 'rebindShop' })}>返回</button>
+                  </>
+                )}
               </>
             )}
             {state.pendingLocation.spaceKind === 'casino' && (
@@ -478,6 +738,78 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   ))}
                 </div>
                 <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>不赌了</button>
+              </>
+            )}
+            {state.pendingLocation.spaceKind === 'park' && (
+              <>
+                <h3>公园</h3>
+                <p className="muted">休息回血，或与熟人免费小坐升温。</p>
+                <div className="shop-list">
+                  <button
+                    className="shop-item"
+                    onClick={() => dispatch({ type: 'LOCATION_PARK_REST' })}
+                  >
+                    <strong>休息回血</strong>
+                    <span>+{PARK_REST_CASH} 万</span>
+                    <em>喘口气</em>
+                  </button>
+                  {human.relations
+                    .filter((r) => r.status !== 'broken')
+                    .map((r) => (
+                      <button
+                        key={r.id}
+                        className="shop-item"
+                        onClick={() =>
+                          dispatch({ type: 'LOCATION_PARK_CHAT', relationId: r.id })
+                        }
+                      >
+                        <strong>与 {r.name} 小坐</strong>
+                        <span>好感 +{PARK_CHAT_BOOST}</span>
+                        <em>免费</em>
+                      </button>
+                    ))}
+                </div>
+                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>离开</button>
+              </>
+            )}
+            {state.pendingLocation.spaceKind === 'invest' && (
+              <>
+                <h3>投资所</h3>
+                <p className="muted">买入标的或按成本 {Math.round(INVEST_SELL_RATIO * 100)}% 卖出。</p>
+                <div className="shop-list">
+                  {investOffersFor(human.track).map((o) => {
+                    const cost =
+                      human.trait === 'investDiscount' ? Math.round(o.cost * 90) / 100 : o.cost
+                    return (
+                      <button
+                        key={o.id}
+                        className="shop-item"
+                        disabled={human.cash + 1e-9 < cost}
+                        onClick={() =>
+                          dispatch({ type: 'LOCATION_BUY_INVEST', offerId: o.id })
+                        }
+                      >
+                        <strong>买 {o.name}</strong>
+                        <span>{cost} 万</span>
+                        <em>季现金流 +{o.cashflow}</em>
+                      </button>
+                    )
+                  })}
+                  {human.investments.map((inv) => (
+                    <button
+                      key={inv.id}
+                      className="shop-item"
+                      onClick={() =>
+                        dispatch({ type: 'LOCATION_SELL_INVEST', investmentId: inv.id })
+                      }
+                    >
+                      <strong>卖 {inv.name}</strong>
+                      <span>+{Math.round(inv.cost * INVEST_SELL_RATIO * 100) / 100} 万</span>
+                      <em>回笼</em>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>离开</button>
               </>
             )}
           </div>
@@ -511,8 +843,13 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           <span>
                             {relationKindLabel(r.kind)} · {relationStatusLabel(r.status)} · 好感{' '}
                             {r.score}
+                            {willBreakNextDecay(r) ? ' · 下回合可能破裂' : ''}
                           </span>
-                          {r.locked ? <em>已锁定</em> : null}
+                          {willBreakNextDecay(r) ? (
+                            <em className="warn">预警</em>
+                          ) : r.locked ? (
+                            <em>已锁定</em>
+                          ) : null}
                         </button>
                       ))}
                   </div>
@@ -544,6 +881,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       <li>状态：{relationStatusLabel(rel.status)}</li>
                       <li>好感：{rel.score}</li>
                       <li>锁定：{rel.locked ? '是（较难被挖走）' : '否'}</li>
+                      {willBreakNextDecay(rel) ? (
+                        <li className="warn">下回合若不维护，关系可能破裂。</li>
+                      ) : null}
                       <li>
                         经营店铺：
                         {operated.length
@@ -718,10 +1058,17 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             {state.pendingDecision.type === 'promote' && (
               <>
                 <h3>可以晋级投资人圈</h3>
-                <p>被动收入已超过总支出。是否进入外圈？</p>
+                <p>
+                  被动收入已超过总支出（
+                  {(() => {
+                    const f = calcFinance(human)
+                    return `${f.passiveIncome} / ${f.totalExpense}`
+                  })()}
+                  ）。进入外圈将获得启动金 +{INVESTOR_START_BONUS} 万。
+                </p>
                 <div className="modal-actions">
                   <button className="primary" onClick={() => dispatch({ type: 'PROMOTE_TO_INVESTOR' })}>
-                    晋级
+                    晋级（+{INVESTOR_START_BONUS} 万）
                   </button>
                   <button onClick={() => dispatch({ type: 'SKIP_PROMOTE' })}>暂留打工人圈</button>
                 </div>
@@ -756,7 +1103,17 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             {state.pendingDecision.type === 'poach' && (
               <>
                 <h3>挖角警告</h3>
-                <p>有人想挖走你的关系。花 0.15 万挽留，还是放人？</p>
+                {(() => {
+                  const d = state.pendingDecision
+                  const thief = state.players.find((p) => p.id === d.fromPlayerId)
+                  const victim = state.players.find((p) => p.id === d.playerId)
+                  const rel = victim?.relations.find((r) => r.id === d.relationId)
+                  return (
+                    <p>
+                      {thief?.name ?? '有人'}想挖走你的「{rel?.name ?? '关系人'}」。花 0.15 万挽留，还是放人？
+                    </p>
+                  )
+                })()}
                 <div className="modal-actions">
                   <button className="primary" onClick={() => dispatch({ type: 'CONFIRM_POACH', accept: false })}>
                     挽留
@@ -778,14 +1135,17 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         </div>
       )}
 
-      <div className="log panel">
-        <h3>本季日志</h3>
+      <details ref={logRef} className="log panel collapsible">
+        <summary className="log-summary">
+          <strong>本季日志</strong>
+          {latestLog && <span className="log-preview muted">{latestLog}</span>}
+        </summary>
         <ul>
-          {[...state.logs].reverse().slice(0, 12).map((l) => (
+          {recentLogs.map((l) => (
             <li key={l.id}>{l.text}</li>
           ))}
         </ul>
-      </div>
+      </details>
     </div>
   )
 }

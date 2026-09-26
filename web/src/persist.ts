@@ -14,7 +14,13 @@ export function loadGame(): GameState | null {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return null
-    return JSON.parse(raw) as GameState
+    const state = JSON.parse(raw) as GameState
+    state.players = state.players.map((p) => ({
+      ...p,
+      poachCooldown: p.poachCooldown ?? 0,
+      maintainedRelationIds: p.maintainedRelationIds ?? [],
+    }))
+    return state
   } catch {
     return null
   }

@@ -54,16 +54,16 @@ export function relationStatusLabel(status: Relation['status']): string {
   }
 }
 
-/** AI：最高好感对象；场所取能负担的最高花费档 */
+/** AI：优先挽救低分关系；场所取能负担的最便宜档（省钱维护） */
 export function pickAiDate(
   player: PlayerState,
 ): { relationId: string; venueId: string } | null {
   const list = dateableRelations(player)
   if (!list.length) return null
-  const partner = [...list].sort((a, b) => b.score - a.score)[0]
+  const partner = [...list].sort((a, b) => a.score - b.score)[0]
   const affordable = DATE_VENUES.filter((v) => player.cash + 1e-9 >= v.cost)
   if (!affordable.length) return null
-  const venue = [...affordable].sort((a, b) => b.cost - a.cost)[0]
+  const venue = [...affordable].sort((a, b) => a.cost - b.cost)[0]
   return { relationId: partner.id, venueId: venue.id }
 }
 
