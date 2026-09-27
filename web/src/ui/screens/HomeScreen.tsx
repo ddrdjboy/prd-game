@@ -2,13 +2,21 @@ import { useState } from 'react'
 import { TUTORIAL_LINES } from '../tutorial'
 import './HomeScreen.css'
 
+const DEFAULT_NAME = '阿文'
+
 type Props = {
-  onStart: (seats: number) => void
+  onStart: (seats: number, humanName: string) => void
   onContinue: (() => void) | null
 }
 
 export function HomeScreen({ onStart, onContinue }: Props) {
   const [showHelp, setShowHelp] = useState(false)
+  const [playerName, setPlayerName] = useState(DEFAULT_NAME)
+
+  const startWithName = (seats: number) => {
+    const name = playerName.trim() || DEFAULT_NAME
+    onStart(seats, name)
+  }
 
   return (
     <div className="home">
@@ -18,9 +26,20 @@ export function HomeScreen({ onStart, onContinue }: Props) {
         <p className="lede">
           18 岁入职，四季推进。打工人圈攒被动收入，晋级投资人圈；45 岁用资产、人脉与恋人关系交卷。
         </p>
+        <label className="name-field">
+          <span>你的名字</span>
+          <input
+            type="text"
+            value={playerName}
+            maxLength={12}
+            placeholder={DEFAULT_NAME}
+            onChange={(e) => setPlayerName(e.target.value)}
+            autoComplete="nickname"
+          />
+        </label>
         <div className="seat-row">
           {[2, 3, 4].map((n) => (
-            <button key={n} className="primary" onClick={() => onStart(n)}>
+            <button key={n} className="primary" onClick={() => startWithName(n)}>
               {n} 人开局
             </button>
           ))}

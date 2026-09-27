@@ -131,6 +131,8 @@ export interface PlayerState {
   poachCooldown: number
   /** 本回合已维护（约会/公园/事务所升温）的关系，结束回合不衰减 */
   maintainedRelationIds: string[]
+  /** 连续发薪结算后现金仍为负的次数；达 2 则破产结束 */
+  negativePaydayStreak: number
 }
 
 export interface FinanceSnapshot {
@@ -237,10 +239,12 @@ export interface GameState {
   lastReels: [number, number, number] | null
   /** 当前回合是否已拉过 777（一人一回合） */
   turnRolled: boolean
+  /** 进入结算的原因：正常到龄 / 破产出局 */
+  settlementReason: 'age' | 'bankrupt' | null
 }
 
 export type GameAction =
-  | { type: 'NEW_GAME'; seatCount: number; seed?: number; endAge?: number }
+  | { type: 'NEW_GAME'; seatCount: number; seed?: number; endAge?: number; humanName?: string }
   | { type: 'CHOOSE_CAREER'; careerId: string }
   | { type: 'ROLL_AND_MOVE' }
   | { type: 'FINISH_SLOT' }

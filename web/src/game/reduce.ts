@@ -448,14 +448,55 @@ function applyPayday(state: GameState, playerId: string): GameState {
   }
   if (early > 0) msg += `（年轻红利 +${early}）`
   s = pushLog(s, `${msg}。`)
+
   const next = s.players.find((x) => x.id === playerId)!
-  if (next.cash < 0) {
-    s = {
+  if (next.cash >= 0) {
+    if ((next.negativePaydayStreak ?? 0) > 0) {
+      s = updatePlayer(s, playerId, (pl) => ({ ...pl, negativePaydayStreak: 0 }))
+      s = pushLog(s, `${p.name} 现金回正，破产警告解除。`)
+    }
+    return s
+  }
+
+  const streak = (next.negativePaydayStreak ?? 0) + 1
+  s = updatePlayer(s, playerId, (pl) => ({ ...pl, negativePaydayStreak: streak }))
+
+  if (streak < 2) {
+    return pushLog(
+      s,
+      `${p.name} 发薪后现金仍为负（${next.cash} 万）。警告 ${streak}/2：若下次发薪仍为负将破产出局。`,
+    )
+  }
+
+  // 连续第二次：破产
+  if (next.isHuman) {
+    s = pushLog(s, `${p.name} 连续两次发薪后现金为负，宣布破产，人生提前结算。`)
+    return {
       ...s,
-      pendingDecision: { type: 'bankrupt', playerId, amount: round2(-next.cash) },
+      phase: 'settlement',
+      settlementReason: 'bankrupt',
+      pendingEvent: null,
+      pendingDecision: null,
+      pendingLocation: null,
+      deferredLocation: null,
+      pendingDate: null,
+      pendingCasino: null,
+      pendingVisitShop: null,
+      pendingExchange: null,
+      moveAnimation: null,
+      slotSpin: null,
     }
   }
-  return s
+
+  // AI：清算归零，不结束整局
+  s = updatePlayer(s, playerId, (pl) => ({
+    ...pl,
+    cash: 0,
+    negativePaydayStreak: 0,
+    investments: [],
+    liabilities: round2(pl.liabilities + Math.abs(next.cash)),
+  }))
+  return pushLog(s, `${p.name} 破产清算：投资清仓，负债记账，现金归零（继续旁观）。`)
 }
 
 function chooseCareer(state: GameState, careerId: string): GameState {
@@ -599,7 +640,7 @@ function finishMove(state: GameState): GameState {
   const rng = createRng(s.rngState)
   if (anim.passedPayday || isPaydaySpace(landed.kind)) {
     s = applyPayday(s, anim.playerId)
-    if (s.pendingDecision) return { ...s, rngState: rng.state() }
+    if (s.phase === 'settlement') return { ...s, rngState: rng.state() }
   }
 
   // 事件由拉霸第 2、3 位决定（与落点无关）
@@ -1508,6 +1549,7 @@ function endTurn(state: GameState): GameState {
       return {
         ...s,
         phase: 'settlement',
+        settlementReason: 'age',
         pendingEvent: null,
         pendingDecision: null,
         pendingLocation: null,
@@ -1636,7 +1678,12 @@ export function autoStep(state: GameState): GameState {
 export function reduce(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'NEW_GAME':
-      return createGame({ seatCount: action.seatCount, seed: action.seed, endAge: action.endAge })
+      return createGame({
+        seatCount: action.seatCount,
+        seed: action.seed,
+        endAge: action.endAge,
+        humanName: action.humanName,
+      })
     case 'LOAD_STATE':
       return action.state
     case 'CHOOSE_CAREER':

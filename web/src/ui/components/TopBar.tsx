@@ -8,6 +8,8 @@ type Props = {
   onToggleAuto: () => void
   onAutoRun: () => void
   onCycleSensitivity: () => void
+  onOpenFinance: () => void
+  financeDisabled?: boolean
 }
 
 const SENS_LABEL: Record<AutoSensitivity, string> = {
@@ -16,7 +18,14 @@ const SENS_LABEL: Record<AutoSensitivity, string> = {
   high: '多打断',
 }
 
-export function TopBar({ state, onToggleAuto, onAutoRun, onCycleSensitivity }: Props) {
+export function TopBar({
+  state,
+  onToggleAuto,
+  onAutoRun,
+  onCycleSensitivity,
+  onOpenFinance,
+  financeDisabled,
+}: Props) {
   const human = state.players[0]
   const fin = calcFinance(human)
   const freePct = Math.min(100, Math.round(fin.freeProgress * 100))
@@ -29,10 +38,32 @@ export function TopBar({ state, onToggleAuto, onAutoRun, onCycleSensitivity }: P
     <header className="topbar">
       <div className="brand">
         <strong>45岁财富自由</strong>
-        <span className="muted">
-          {state.age} 岁 · {SEASONS[state.seasonIndex]}
-          {endAge !== END_AGE ? ` · 速通至 ${endAge}` : ''}
-        </span>
+        <div className="brand-row">
+          <span className="brand-age">
+            <span className="player-name">{human.name}</span>
+            <span className="muted">
+              {state.age} 岁 · {SEASONS[state.seasonIndex]}
+              {endAge !== END_AGE ? ` · 速通至 ${endAge}` : ''}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="finance-chip"
+            disabled={financeDisabled}
+            onClick={onOpenFinance}
+            title="打开财务报表"
+          >
+            <span className="finance-chip-label">财务</span>
+            <span className="finance-chip-stats">
+              现金 {human.cash}
+              <span className="dot">·</span>
+              季流{' '}
+              <span className={fin.seasonalCashflow >= 0 ? 'pos' : 'neg'}>
+                {fin.seasonalCashflow}
+              </span>
+            </span>
+          </button>
+        </div>
       </div>
       <div className="progress-wrap">
         <div className="progress-dual">

@@ -76,10 +76,12 @@ export function migrateState(state: GameState): GameState {
     pendingCasino: state.pendingCasino ?? null,
     pendingVisitShop: state.pendingVisitShop ?? null,
     pendingExchange: state.pendingExchange ?? null,
+    settlementReason: state.settlementReason ?? null,
     players: state.players.map((p) => ({
       ...p,
       poachCooldown: p.poachCooldown ?? 0,
       maintainedRelationIds: p.maintainedRelationIds ?? [],
+      negativePaydayStreak: p.negativePaydayStreak ?? 0,
       relations: p.relations.map((r) => migrateRelation(r as LegacyRelation)),
       shops: p.shops.map((s) => migrateShop(s as LegacyShop)),
     })),

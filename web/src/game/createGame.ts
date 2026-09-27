@@ -20,7 +20,7 @@ export function createGame(opts: {
     const isHuman = i === 0
     players.push({
       id: `p${i}`,
-      name: isHuman ? opts.humanName ?? '你' : `AI-${i}`,
+      name: isHuman ? (opts.humanName?.trim() || '阿文') : `AI-${i}`,
       isHuman,
       careerId: null,
       salary: 0,
@@ -37,6 +37,7 @@ export function createGame(opts: {
       trait: null,
       poachCooldown: 0,
       maintainedRelationIds: [],
+      negativePaydayStreak: 0,
     })
   }
 
@@ -67,5 +68,6 @@ export function createGame(opts: {
     lastDice: null,
     lastReels: null,
     turnRolled: false,
+    settlementReason: null,
   }
 }

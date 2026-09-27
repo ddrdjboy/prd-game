@@ -17,6 +17,7 @@ function reducer(state: GameState | null, action: GameAction | { type: 'CLEAR' }
       seatCount: action.seatCount,
       seed: action.seed,
       endAge: action.endAge ?? getEndAge(),
+      humanName: action.humanName,
     })
   }
   if (action.type === 'LOAD_STATE') return action.state
@@ -32,9 +33,15 @@ export default function App() {
     if (state && state.phase !== 'home') saveGame(state)
   }, [state])
 
-  const start = useCallback((seats: number) => {
+  const start = useCallback((seats: number, humanName?: string) => {
     clearSave()
-    dispatch({ type: 'NEW_GAME', seatCount: seats, endAge: getEndAge(), seed: Date.now() % 1_000_000 })
+    dispatch({
+      type: 'NEW_GAME',
+      seatCount: seats,
+      endAge: getEndAge(),
+      seed: Date.now() % 1_000_000,
+      humanName: humanName?.trim() || '阿文',
+    })
   }, [])
 
   const onAutoRun = useCallback(() => {

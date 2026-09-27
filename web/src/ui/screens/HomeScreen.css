@@ -27,7 +27,35 @@
   font-size: 1.1rem;
   line-height: 1.55;
   color: var(--muted);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.15rem;
+  max-width: 280px;
+}
+
+.name-field span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.name-field input {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0c1612;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.name-field input:focus {
+  outline: 2px solid rgba(226, 177, 74, 0.45);
+  outline-offset: 1px;
 }
 
 .seat-row {
@@ -59,7 +87,11 @@
 
   .lede {
     font-size: 1rem;
-    margin-bottom: 1.15rem;
+    margin-bottom: 1rem;
+  }
+
+  .name-field {
+    max-width: none;
   }
 
   .seat-row {

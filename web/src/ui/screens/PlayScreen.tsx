@@ -102,6 +102,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const [showTutorial, setShowTutorial] = useState(() => !hasSeenTutorial())
   const [comboFlash, setComboFlash] = useState<string | null>(null)
   const [momentBanner, setMomentBanner] = useState<string | null>(null)
+  const [cashHint, setCashHint] = useState<string | null>(null)
+  const cashHintTimer = useRef<number | null>(null)
   const [eventTaste, setEventTaste] = useState<{
     title: string
     lines: TasteLine[]
@@ -116,6 +118,23 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   } | null>(null)
   const recentLogs = [...state.logs].reverse().slice(0, 12)
   const latestLog = recentLogs[0]?.text
+
+  const flashCashHint = (need: number, have?: number) => {
+    const gap = have != null ? Math.max(0, need - have) : need
+    const msg =
+      have != null
+        ? `现金不足：需要 ${need.toFixed(2)} 万，还差 ${gap.toFixed(2)} 万`
+        : `现金不足：大约需要 ${need.toFixed(2)} 万`
+    setCashHint(msg)
+    if (cashHintTimer.current != null) window.clearTimeout(cashHintTimer.current)
+    cashHintTimer.current = window.setTimeout(() => setCashHint(null), 2400)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (cashHintTimer.current != null) window.clearTimeout(cashHintTimer.current)
+    }
+  }, [])
 
   const dispatchTaste = (
     title: string,
@@ -301,10 +320,22 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         onToggleAuto={() => dispatch({ type: 'SET_AUTO', enabled: !state.autoEnabled })}
         onAutoRun={onAutoRun}
         onCycleSensitivity={cycleSensitivity}
+        onOpenFinance={() => setFinanceOpen(true)}
+        financeDisabled={busy || Boolean(shopPanel || friendPanel || logOpen)}
+      />
+      <FinancePanel
+        player={human}
+        open={financeOpen}
+        onOpenChange={setFinanceOpen}
       />
       {momentBanner && (
         <div className="moment-banner" role="status">
           {momentBanner}
+        </div>
+      )}
+      {cashHint && (
+        <div className="cash-hint-banner" role="alert">
+          {cashHint}
         </div>
       )}
       {showTutorial && (
@@ -335,12 +366,6 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           comboFlash={Boolean(comboFlash)}
         />
         <div className="info-split panel">
-          <FinancePanel
-            player={human}
-            open={financeOpen}
-            onOpenChange={setFinanceOpen}
-            disabled={busy || Boolean(shopPanel || friendPanel || logOpen)}
-          />
           <button
             type="button"
             className="log-trigger"
@@ -449,10 +474,22 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   return (
                     <button
                       key={ch.id}
-                      className={ch.id === 'accept' || ch.id === 'raise' ? 'primary' : undefined}
-                      disabled={broke}
+                      type="button"
+                      className={[
+                        ch.id === 'accept' || ch.id === 'raise' ? 'primary' : '',
+                        broke ? 'is-broke' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined}
+                      aria-disabled={broke}
                       title={broke ? `现金不足（需约 ${cost} 万）` : undefined}
-                      onClick={() => resolveChoice(ch.id)}
+                      onClick={() => {
+                        if (broke) {
+                          flashCashHint(cost, cash)
+                          return
+                        }
+                        resolveChoice(ch.id)
+                      }}
                     >
                       {ch.label}
                       {broke ? '（现金不足）' : ''}
@@ -1436,15 +1473,20 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       return (
                         <button
                           key={v.id}
-                          className="shop-item"
-                          disabled={broke}
+                          type="button"
+                          className={`shop-item${broke ? ' is-broke' : ''}`}
+                          aria-disabled={broke}
                           title={broke ? '现金不足' : undefined}
-                          onClick={() =>
+                          onClick={() => {
+                            if (broke) {
+                              flashCashHint(v.cost, dater.cash)
+                              return
+                            }
                             dispatchTaste(`约会 · ${v.name}`, 'date', {
                               type: 'DATE_CONFIRM_VENUE',
                               venueId: v.id,
                             })
-                          }
+                          }}
                         >
                           <strong>{v.name}</strong>
                           <span>
@@ -1595,7 +1637,10 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             {state.pendingDecision.type === 'bankrupt' && (
               <>
                 <h3>现金流断裂</h3>
-                <p>需要记账负债 {state.pendingDecision.amount} 万并可能变卖投资。</p>
+                <p>
+                  旧存档遗留处理：记账负债 {state.pendingDecision.amount}{' '}
+                  万。新规则下连续两次发薪为负将直接破产结算。
+                </p>
                 <button
                   className="primary"
                   onClick={() =>

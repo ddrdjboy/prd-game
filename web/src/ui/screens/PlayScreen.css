@@ -24,6 +24,24 @@
   animation: moment-in 0.28s ease-out;
 }
 
+.cash-hint-banner {
+  position: sticky;
+  top: 0;
+  z-index: 16;
+  margin: 0 auto;
+  max-width: min(520px, 94%);
+  padding: 0.5rem 0.95rem;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3b1208;
+  background: linear-gradient(90deg, #f0a070, #f5c49a);
+  border: 1px solid rgba(180, 70, 40, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  animation: moment-in 0.22s ease-out;
+}
+
 .event-taste-card {
   width: min(400px, 100%);
   text-align: left;
@@ -107,13 +125,12 @@
   margin: 0;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0;
   padding: 0;
   overflow: hidden;
 }
 
-.info-split .finance-trigger,
 .info-split .log-trigger {
   min-width: 0;
   width: 100%;
@@ -122,10 +139,6 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-
-.info-split .finance-trigger {
-  border-right: 1px solid var(--line);
 }
 
 .play .controls {
@@ -311,9 +324,15 @@
   flex-wrap: wrap;
 }
 
-.event-choices button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.event-choices button:disabled,
+.event-choices button.is-broke,
+.shop-item.is-broke {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.event-choices button.is-broke {
+  text-decoration: none;
 }
 
 .shop-detail-list {
