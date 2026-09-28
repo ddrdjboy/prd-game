@@ -11,7 +11,7 @@ describe('scoring', () => {
       typeId: 'convenience',
       managerId: 'r1',
       level: 2,
-      baseRevenue: 1.5,
+      baseRevenue: 2.5,
     })
     const p: PlayerState = {
       id: 'p0',
@@ -25,16 +25,17 @@ describe('scoring', () => {
       track: 'investor',
       position: 0,
       relations: [
-        { id: 'r1', kind: 'network', name: 'A', score: 100, status: 'partner', locked: true, skills: ['retail', 'manage'], training: null },
-        { id: 'r2', kind: 'romance', name: 'B', score: 90, status: 'married', locked: true, skills: [], training: null },
+        { id: 'r1', name: 'A', affinity: 500, locked: true, skills: ['retail', 'manage'], training: null },
+        { id: 'r2', name: 'B', affinity: 450, locked: true, skills: [], training: null },
       ],
       shops: [shop],
-      investments: [],
+      investments: [{ id: 'i1', name: '基金', cost: 2, cashflow: 0.5 }],
       actionPoints: 0,
       aiStyle: null,
       trait: null,
       poachCooldown: 0,
       maintainedRelationIds: [],
+      negativePaydayStreak: 0,
     }
     const s = scorePlayer(p)
     expect(s.free).toBe(true)

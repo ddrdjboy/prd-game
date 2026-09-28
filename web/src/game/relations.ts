@@ -1,14 +1,11 @@
-import {
-  RELATION_BREAK_AT,
-  RELATION_DECAY_LOCKED,
-  RELATION_DECAY_UNLOCKED,
-} from './config'
+import { RELATION_DECAY_LOCKED, RELATION_DECAY_UNLOCKED } from './config'
+import { applyAffinityDelta, stageFromAffinity } from './affinity'
 import type { PlayerState, Relation } from './types'
 
 export interface DecayResult {
   player: PlayerState
-  /** 是否有任何人分下降（含破裂） */
   cooled: boolean
+  /** 本回合掉进仇恨段的名字 */
   brokenNames: string[]
 }
 
@@ -21,16 +18,14 @@ export function decayPlayerRelations(
   let cooled = false
 
   const relations: Relation[] = player.relations.map((r) => {
-    if (r.status === 'broken') return r
     if (skip.has(r.id)) return r
     const drop = r.locked ? RELATION_DECAY_LOCKED : RELATION_DECAY_UNLOCKED
-    cooled = true
-    const score = Math.max(0, r.score - drop)
-    if (score <= RELATION_BREAK_AT) {
-      brokenNames.push(r.name)
-      return { ...r, score, status: 'broken' as const, locked: false }
-    }
-    return { ...r, score }
+    const before = r.affinity
+    const { affinity } = applyAffinityDelta(r.affinity, -drop)
+    if (affinity !== before) cooled = true
+    if (before > 0 && affinity <= 0) brokenNames.push(r.name)
+    const locked = affinity > 0 && stageFromAffinity(affinity) !== 'hate' ? r.locked : false
+    return { ...r, affinity, locked: affinity <= 0 ? false : locked }
   })
 
   return {
@@ -40,9 +35,10 @@ export function decayPlayerRelations(
   }
 }
 
-/** 再衰减一次是否会 ≤ 破裂线（未锁定用 unlocked 衰减） */
+/** 再衰减一次是否会跌入仇恨（≤0） */
 export function willBreakNextDecay(r: Relation): boolean {
-  if (r.status === 'broken') return false
+  if (r.affinity <= 0) return false
   const drop = r.locked ? RELATION_DECAY_LOCKED : RELATION_DECAY_UNLOCKED
-  return r.score - drop <= RELATION_BREAK_AT
+  const { affinity } = applyAffinityDelta(r.affinity, -drop)
+  return affinity <= 0
 }

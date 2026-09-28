@@ -11,10 +11,8 @@ import type { PlayerState, Relation } from '../src/game/types'
 
 function rel(over: Partial<Relation> & Pick<Relation, 'id' | 'portraitId'>): Relation {
   return {
-    kind: 'romance',
     name: '测',
-    score: 40,
-    status: 'dating',
+    affinity: 40,
     locked: false,
     skills: [],
     training: null,
@@ -60,7 +58,7 @@ describe('portraits', () => {
   it('collects used portrait ids across players', () => {
     const used = usedPortraitIds([
       stubPlayer([rel({ id: 'r1', portraitId: 'g01' })]),
-      stubPlayer([rel({ id: 'r2', kind: 'network', status: 'new', portraitId: 'g03' })]),
+      stubPlayer([rel({ id: 'r2', portraitId: 'g03' })]),
     ])
     expect([...used].sort()).toEqual(['g01', 'g03'])
   })
@@ -79,10 +77,15 @@ describe('portraits', () => {
     let g = createGame({ seatCount: 2, seed: 11, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
     const before = g.players[0].relations.length
-    const next = applyEffects(g, g.players[0].id, [{ type: 'meet', relationKind: 'romance', score: 40 }], () => 0.1)
+    const next = applyEffects(
+      g,
+      g.players[0].id,
+      [{ type: 'meet', affinity: 40 }],
+      () => 0.1,
+    )
     expect(next.players[0].relations.length).toBe(before + 1)
-    const rel = next.players[0].relations[next.players[0].relations.length - 1]!
-    expect(rel.portraitId).toBeTruthy()
-    expect(PORTRAIT_CATALOG).toContain(rel.portraitId as (typeof PORTRAIT_CATALOG)[number])
+    const met = next.players[0].relations[next.players[0].relations.length - 1]!
+    expect(met.portraitId).toBeTruthy()
+    expect(PORTRAIT_CATALOG).toContain(met.portraitId as (typeof PORTRAIT_CATALOG)[number])
   })
 })

@@ -9,6 +9,9 @@ export const ROMANCE_NAMES = [
   '佳怡', '明杰', '若曦', '宇轩', '清妍', '志强', '欣怡', '天佑',
 ]
 
+/** 统一名册（人脉/恋人合并） */
+export const RELATION_NAMES = [...NETWORK_NAMES, ...ROMANCE_NAMES]
+
 /** 人名 → 固定初始技能（0–3） */
 export const INITIAL_SKILLS_BY_NAME: Record<string, string[]> = {
   阿强: ['sales'],

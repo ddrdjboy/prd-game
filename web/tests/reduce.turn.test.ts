@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { applyAffinityDelta } from '../src/game/affinity'
 import { createGame } from '../src/game/createGame'
 import { reduce } from '../src/game/reduce'
 import type { GameState } from '../src/game/types'
@@ -57,10 +58,11 @@ describe('turn loop', () => {
               relations: [
                 {
                   id: 'r1',
-                  kind: 'network',
+
                   name: '阿强',
-                  score: 50,
-                  status: 'stable',
+                  affinity: 250,
+                  skills: [],
+                  training: null,
                   locked: false,
                 },
               ],
@@ -72,6 +74,6 @@ describe('turn loop', () => {
     expect(g.turnPlayerIndex).toBe(0)
     g = reduce(g, { type: 'END_TURN' })
     const r = g.players.find((p) => p.id === humanId)!.relations[0]
-    expect(r.score).toBe(46)
+    expect(r.affinity).toBe(applyAffinityDelta(250, -4).affinity)
   })
 })

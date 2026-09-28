@@ -26,23 +26,12 @@ export type EventKind =
   | 'cashflowDay'
   | 'narrative'
 
-export type RelationKind = 'network' | 'romance'
-export type RelationStatus =
-  | 'new'
-  | 'stable'
-  | 'partner'
-  | 'dating'
-  | 'engaged'
-  | 'married'
-  | 'broken'
-
 export type AiStyle = 'steady' | 'aggressive' | 'social'
 export type GamePhase = 'home' | 'careerPick' | 'playing' | 'settlement'
 export type AutoSensitivity = 'low' | 'standard' | 'high'
 
 export type CareerTrait =
-  | 'networkBoost'
-  | 'romanceBoost'
+  | 'relationBoost'
   | 'investDiscount'
   | 'expenseResist'
 
@@ -64,10 +53,9 @@ export interface BoardSpace {
 
 export interface Relation {
   id: string
-  kind: RelationKind
   name: string
-  score: number
-  status: RelationStatus
+  /** 统一好感 [-100, 500]；仇恨段为负 */
+  affinity: number
   locked: boolean
   /** 0–3 个技能 id */
   skills: string[]
@@ -256,7 +244,7 @@ export type GameAction =
   | { type: 'LOCATION_BUY_VACANT'; relationId: string }
   | { type: 'LOCATION_BUY_ITEM'; itemId: string }
   | { type: 'LOCATION_POACH' }
-  | { type: 'OFFICE_RECOMMEND'; kind: 'network' | 'romance' }
+  | { type: 'OFFICE_RECOMMEND' }
   | { type: 'OFFICE_ADJUST'; ownerId: string; relationId: string; direction: 'up' | 'down' }
   | { type: 'OFFICE_POACH'; targetPlayerId: string; relationId: string }
   | { type: 'LOCATION_UPGRADE_SHOP'; shopId: string }
@@ -322,8 +310,7 @@ export type GameAction =
 export interface ScoreResult {
   free: boolean
   netWorth: number
-  networkScore: number
-  romanceScore: number
+  relationScore: number
   grade: 'S' | 'A' | 'B' | 'C'
   comment: string
   finance: FinanceSnapshot

@@ -19,10 +19,11 @@ function player(over: Partial<PlayerState> & { aiStyle: AiStyle }): PlayerState 
     relations: [
       {
         id: 'r1',
-        kind: 'network',
+
         name: '阿强',
-        score: 60,
-        status: 'stable',
+        affinity: 300,
+        skills: [],
+        training: null,
         locked: false,
         skills: ['sales'],
         training: null,
@@ -87,14 +88,12 @@ describe('pickAiLocationAction', () => {
       label: '公园',
     }
     const p = player({
-      aiStyle: 'steady',
+      aiStyle: 'social',
       relations: [
         {
           id: 'r1',
-          kind: 'network',
           name: '阿强',
-          score: 40,
-          status: 'stable',
+          affinity: 200,
           locked: false,
           skills: ['sales'],
           training: null,

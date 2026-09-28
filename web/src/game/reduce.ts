@@ -3,13 +3,21 @@ import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, POACH_COOLDOWN_TURNS, EARLY_
 import { CAREERS } from './careers'
 import { createGame } from './createGame'
 import { pickAiLocationAction } from './ai'
-import { EVENTS, canAffordChoice, choiceCashCost, pickEventChoice, type EventEffect } from './events'
+import {
+  EVENTS,
+  canAffordChoice,
+  choiceCashCost,
+  pickEventChoice,
+  resolveEventChoices,
+  type EventEffect,
+} from './events'
 import {
   DATE_VENUES,
   dateBoostFor,
   dateVenueById,
   dateableRelations,
   pickAiDate,
+  venueUnlockedFor,
 } from './dating'
 import {
   OFFICE_POACH_COST,
@@ -66,8 +74,9 @@ import {
   exchangeSetLeverage,
   exchangeTick,
 } from './exchangeReduce'
-import { NETWORK_NAMES, ROMANCE_NAMES, pickName } from './relationsCatalog'
+import { RELATION_NAMES, pickName } from './relationsCatalog'
 import { pickPortraitId, usedPortraitIds } from './portraits'
+import { applyAffinityDelta, rollInitialAffinity, stageFromAffinity, stageGte } from './affinity'
 import { decayPlayerRelations } from './relations'
 import { createRng } from './rng'
 import { skillById } from './skills'
@@ -149,32 +158,16 @@ function buyShop(
   return pushLog(s, `${p.name} 开设「${effect.name}」（${def?.label ?? typeId}），店长「${op.name}」。`)
 }
 
-function marry(state: GameState, playerId: string, relationId: string, accept: boolean): GameState {
+function deepenBond(state: GameState, playerId: string, relationId: string, accept: boolean): GameState {
   let s = state
   const name = s.players.find((p) => p.id === playerId)!.name
   if (!accept) {
-    s = updatePlayer(s, playerId, (p) => ({
-      ...p,
-      relations: p.relations.map((r) =>
-        r.id === relationId ? { ...r, score: Math.max(0, r.score - 15) } : r,
-      ),
-    }))
-    return pushLog(s, `${name} 暂缓了婚事。`)
+    s = boostRelationById(s, playerId, relationId, -15)
+    return pushLog(s, `${name} 婉拒了更进一步。`)
   }
-  s = updatePlayer(s, playerId, (p) => ({
-    ...p,
-    cash: round2(p.cash - 0.5),
-    relations: p.relations.map((r) => {
-      if (r.id === relationId) {
-        return { ...r, status: 'married' as const, locked: true, score: Math.min(100, r.score + 10) }
-      }
-      if (r.kind === 'romance' && r.status !== 'broken') {
-        return { ...r, score: Math.max(0, Math.floor(r.score * 0.5)) }
-      }
-      return r
-    }),
-  }))
-  return pushLog(s, `${name} 结婚了！其他恋情降温。`)
+  s = boostRelationById(s, playerId, relationId, 12)
+  s = markMaintained(s, playerId, relationId)
+  return pushLog(s, `${name} 和对方的关系更亲近了。`)
 }
 
 function applyClosedShops(
@@ -208,7 +201,7 @@ function transferRelation(state: GameState, fromId: string, toId: string, relati
       ...p.relations,
       makeRelation({
         ...rel,
-        score: Math.max(20, rel.score - 20),
+        affinity: Math.max(-80, rel.affinity - 20),
         locked: false,
         training: null,
       }),
@@ -225,7 +218,7 @@ function maybePoach(state: GameState, actorId: string, rng: () => number): GameS
   for (const p of state.players) {
     if (p.id === actorId) continue
     for (const r of p.relations) {
-      if (r.status !== 'broken' && !r.locked) targets.push({ player: p, rel: r })
+      if (!r.locked) targets.push({ player: p, rel: r })
     }
   }
   if (!targets.length) return state
@@ -241,7 +234,7 @@ function maybePoach(state: GameState, actorId: string, rng: () => number): GameS
       },
     }
   }
-  const success = rng() < (pick.rel.score > 70 ? 0.15 : 0.35)
+  const success = rng() < poachSuccessChance(pick.rel.affinity)
   if (!success) {
     return pushLog(state, `${state.players.find((p) => p.id === actorId)!.name} 挖角失败。`)
   }
@@ -275,59 +268,47 @@ export function applyEffects(
         }))
         break
       case 'meet': {
-        const pool = effect.relationKind === 'network' ? NETWORK_NAMES : ROMANCE_NAMES
-        const name = pickName(pool, usedNames(s), rng)
-        const score = effect.score ?? 40
-        const boost = player().trait === 'networkBoost' && effect.relationKind === 'network' ? 8 : 0
-        const rBoost = player().trait === 'romanceBoost' && effect.relationKind === 'romance' ? 8 : 0
+        const name = pickName(RELATION_NAMES, usedNames(s), rng)
+        let affinity = effect.affinity ?? rollInitialAffinity(rng)
+        if (player().trait === 'relationBoost') {
+          affinity = applyAffinityDelta(affinity, 8).affinity
+        }
         const portraitId = pickPortraitId(usedPortraitIds(s.players), rng)
         const rel = makeRelation({
           id: `rel-${s.logs.length}-${Math.floor(rng() * 1e6)}`,
-          kind: effect.relationKind,
           name,
-          score: Math.min(100, score + boost + rBoost),
-          status: effect.relationKind === 'network' ? 'new' : 'dating',
+          affinity,
           locked: false,
           portraitId,
         })
         s = updatePlayer(s, playerId, (p) => ({ ...p, relations: [...p.relations, rel] }))
-        s = pushLog(
-          s,
-          `${player().name} 结识了${effect.relationKind === 'network' ? '人脉' : '恋人'}「${name}」。`,
-        )
+        s = pushLog(s, `${player().name} 结识了「${name}」。`)
         break
       }
       case 'boostRelation':
         s = updatePlayer(s, playerId, (p) => {
-          const candidates = p.relations.filter(
-            (r) => r.status !== 'broken' && (!effect.kind || r.kind === effect.kind),
-          )
+          let candidates = p.relations
+          if (effect.relationId) {
+            candidates = p.relations.filter((r) => r.id === effect.relationId)
+          }
           if (!candidates.length) return p
           const target = candidates[Math.floor(rng() * candidates.length)]
           return {
             ...p,
             relations: p.relations.map((r) => {
               if (r.id !== target.id) return r
-              const score = Math.max(0, Math.min(100, r.score + effect.amount))
-              let status = r.status
-              if (score <= 10 && effect.amount < 0) status = 'broken'
-              if (r.kind === 'network' && score >= 50 && r.status === 'new') status = 'stable'
-              if (r.kind === 'network' && score >= 75 && (r.status === 'stable' || r.status === 'new')) {
-                status = 'partner'
-              }
-              return {
-                ...r,
-                score,
-                status,
-                locked: status === 'partner' || status === 'married' || r.locked,
-              }
+              const { affinity } = applyAffinityDelta(r.affinity, effect.amount)
+              const locked =
+                r.locked ||
+                (effect.amount > 0 && stageGte(stageFromAffinity(affinity), 'friendly'))
+              return { ...r, affinity, locked }
             }),
           }
         })
         break
       case 'offerShop': {
         const p = player()
-        const ops = p.relations.filter((r) => r.status !== 'broken')
+        const ops = p.relations
         if (!ops.length) {
           s = pushLog(s, `${p.name} 想开「${effect.name}」，但还没有可绑定的关系人。`)
           break
@@ -406,18 +387,6 @@ export function applyEffects(
       case 'poachAttempt':
         s = maybePoach(s, playerId, rng)
         break
-      case 'marriagePrompt': {
-        const dating = player().relations.find(
-          (r) => r.kind === 'romance' && (r.status === 'dating' || r.status === 'engaged') && r.score >= 60,
-        )
-        if (!dating) break
-        if (player().isHuman) {
-          s = { ...s, pendingDecision: { type: 'marriage', playerId, relationId: dating.id } }
-        } else {
-          s = marry(s, playerId, dating.id, true)
-        }
-        break
-      }
     }
   }
   return s
@@ -703,9 +672,10 @@ function resolveEventChoice(state: GameState, choiceId: string): GameState {
 
   const player = state.players.find((x) => x.id === pending.playerId)
   const cash = player?.cash ?? 0
+  const choices = player ? resolveEventChoices(event, player) : event.choices
 
   // 全部付不起或显式跳过：空手过关，不卡死
-  if (choiceId === '__skip__' || !event.choices.some((ch) => canAffordChoice(cash, ch.effects))) {
+  if (choiceId === '__skip__' || !choices.some((ch) => canAffordChoice(cash, ch.effects))) {
     const rng = createRng(state.rngState)
     let s: GameState = { ...state, pendingEvent: null, rngState: rng.state() }
     s = pushLog(s, `事件：${event.title} — 手头太紧，只能空手过关。`)
@@ -715,14 +685,14 @@ function resolveEventChoice(state: GameState, choiceId: string): GameState {
   }
 
   let choice =
-    event.choices.find((x) => x.id === choiceId) ??
-    event.choices.find((x) => x.id === 'accept') ??
-    event.choices[0]
+    choices.find((x) => x.id === choiceId) ??
+    choices.find((x) => x.id === 'accept') ??
+    choices[0]
   if (!choice) return { ...state, pendingEvent: null }
 
   if (!canAffordChoice(cash, choice.effects) && choiceCashCost(choice.effects) > 0) {
     // 所选付不起：改走可负担项或跳过，避免 pendingEvent 残留
-    const fallback = event.choices.find((ch) => canAffordChoice(cash, ch.effects))
+    const fallback = choices.find((ch) => canAffordChoice(cash, ch.effects))
     if (!fallback) return resolveEventChoice(state, '__skip__')
     choice = fallback
   }
@@ -824,17 +794,15 @@ function locationBuyVacant(state: GameState, relationId: string): GameState {
   const shopName = `${loc.track === 'worker' ? '市区' : '商圈'}空地店`
 
   if (hire) {
-    const names = NETWORK_NAMES
+    const names = RELATION_NAMES
     const used = usedNames(s)
     const name = pickName(names, used, () => rng.next())
     const opId = `hire-${Math.floor(rng.next() * 1e6)}`
     const portraitId = pickPortraitId(usedPortraitIds(s.players), () => rng.next())
     const rel = makeRelation({
       id: opId,
-      kind: 'network',
       name,
-      score: 32,
-      status: 'new',
+      affinity: 40,
       locked: false,
       portraitId,
     })
@@ -897,9 +865,9 @@ function locationBuyItem(state: GameState, itemId: string): GameState {
   const rng = createRng(state.rngState)
   let s = updatePlayer(state, loc.playerId, (pl) => ({ ...pl, cash: round2(pl.cash - item.cost) }))
   if (itemId === 'gift') {
-    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12, kind: 'romance' }], () => rng.next())
+    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12 }], () => rng.next())
   } else if (itemId === 'wine') {
-    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12, kind: 'network' }], () => rng.next())
+    s = applyEffects(s, loc.playerId, [{ type: 'boostRelation', amount: 12 }], () => rng.next())
   } else if (itemId === 'course') {
     s = applyEffects(s, loc.playerId, [{ type: 'salary', delta: 0.08 }], () => rng.next())
   } else if (itemId === 'gadget') {
@@ -956,7 +924,7 @@ function applyAiLocation(state: GameState): GameState {
     case 'poach':
       return locationPoach(state)
     case 'recommend':
-      return officeRecommend(state, pick.kind)
+      return officeRecommend(state)
     case 'upgrade':
       return locationUpgradeShop(state, pick.shopId)
     case 'rebind':
@@ -976,7 +944,7 @@ function applyAiLocation(state: GameState): GameState {
   }
 }
 
-function officeRecommend(state: GameState, kind: 'network' | 'romance'): GameState {
+function officeRecommend(state: GameState): GameState {
   const loc = state.pendingLocation
   if (!loc || loc.spaceKind !== 'office') return state
   const player = state.players.find((p) => p.id === loc.playerId)!
@@ -991,17 +959,8 @@ function officeRecommend(state: GameState, kind: 'network' | 'romance'): GameSta
     })),
     pendingLocation: null,
   }
-  const score = 35 + Math.floor(rng.next() * 11)
-  s = applyEffects(
-    s,
-    loc.playerId,
-    [{ type: 'meet', relationKind: kind, score }],
-    () => rng.next(),
-  )
-  s = pushLog(
-    s,
-    `${player.name} 花 ${OFFICE_RECOMMEND_COST} 万请事务所推荐了一位${kind === 'network' ? '人脉' : '恋人'}。`,
-  )
+  s = applyEffects(s, loc.playerId, [{ type: 'meet' }], () => rng.next())
+  s = pushLog(s, `${player.name} 花 ${OFFICE_RECOMMEND_COST} 万请事务所推荐了一位新朋友。`)
   return { ...s, rngState: rng.state() }
 }
 
@@ -1016,7 +975,7 @@ function officeAdjust(
   const actor = state.players.find((p) => p.id === loc.playerId)!
   const owner = state.players.find((p) => p.id === ownerId)
   const rel = owner?.relations.find((r) => r.id === relationId)
-  if (!owner || !rel || rel.status === 'broken') return state
+  if (!owner || !rel) return state
   if (ownerId !== loc.playerId && rel.locked) {
     return pushLog(state, '对方关系已锁定，无法调节。')
   }
@@ -1049,7 +1008,7 @@ function officePoach(state: GameState, targetPlayerId: string, relationId: strin
   if (targetPlayerId === loc.playerId) return state
   const target = state.players.find((p) => p.id === targetPlayerId)
   const rel = target?.relations.find((r) => r.id === relationId)
-  if (!target || !rel || rel.status === 'broken' || rel.locked) {
+  if (!target || !rel || rel.locked) {
     return pushLog(clearLocation(state), '该目标无法挖角。')
   }
   if (actor.cash + 1e-9 < OFFICE_POACH_COST) {
@@ -1076,7 +1035,7 @@ function officePoach(state: GameState, targetPlayerId: string, relationId: strin
     }
   }
 
-  const chance = poachSuccessChance(rel.score)
+  const chance = poachSuccessChance(rel.affinity)
   if (rng.next() >= chance) {
     return { ...pushLog(s, `${actor.name} 挖角失败。`), rngState: rng.state() }
   }
@@ -1277,7 +1236,7 @@ function locationParkChat(state: GameState, relationId: string): GameState {
   const loc = state.pendingLocation
   if (!loc || loc.spaceKind !== 'park') return state
   const p = state.players.find((x) => x.id === loc.playerId)!
-  const rel = p.relations.find((r) => r.id === relationId && r.status !== 'broken')
+  const rel = p.relations.find((r) => r.id === relationId && true)
   if (!rel) {
     return pushLog(clearLocation(state), `${p.name} 没找到聊天对象，只好离开公园。`)
   }
@@ -1377,16 +1336,10 @@ function boostRelationById(
     ...p,
     relations: p.relations.map((r) => {
       if (r.id !== relationId) return r
-      const score = Math.max(0, Math.min(100, r.score + amount))
-      let status = r.status
-      if (score <= 10 && amount < 0) status = 'broken'
-      if (r.kind === 'romance' && score >= 80 && status === 'dating') status = 'engaged'
-      return {
-        ...r,
-        score,
-        status,
-        locked: status === 'partner' || status === 'married' || status === 'engaged' || r.locked,
-      }
+      const { affinity } = applyAffinityDelta(r.affinity, amount)
+      const locked =
+        r.locked || (amount > 0 && stageGte(stageFromAffinity(affinity), 'friendly'))
+      return { ...r, affinity, locked: affinity <= 0 ? false : locked }
     }),
   }))
 }
@@ -1405,24 +1358,32 @@ function completeDate(
   if (player.cash + 1e-9 < venue.cost) {
     return pushLog(state, `现金不足，去不了「${venue.name}」。`)
   }
-  const boost = dateBoostFor(player, venue, rel)
+  if (!venueUnlockedFor(venue, rel)) {
+    return pushLog(state, `和好感阶段不够，还去不了「${venue.name}」。`)
+  }
+  const boost = dateBoostFor(player, venue)
+  const before = rel.affinity
   let s = updatePlayer(state, playerId, (p) => ({
     ...p,
     actionPoints: p.actionPoints - 1,
     cash: round2(p.cash - venue.cost),
   }))
   s = boostRelationById(s, playerId, relationId, boost)
+  const after = s.players.find((p) => p.id === playerId)!.relations.find((r) => r.id === relationId)!
   s = markMaintained(s, playerId, relationId)
   s = { ...s, pendingDate: null }
-  const verb = rel.kind === 'romance' ? '约会' : '交友'
-  return pushLog(s, `${player.name} 和「${rel.name}」${verb}：${venue.name}（好感+${boost}）。`)
+  const applied = after.affinity - before
+  return pushLog(
+    s,
+    `${player.name} 和「${rel.name}」互动：${venue.name}（好感${applied >= 0 ? '+' : ''}${applied}）。`,
+  )
 }
 
 function startDateAction(state: GameState): GameState {
   const player = state.players[state.turnPlayerIndex]
   const candidates = dateableRelations(player)
   if (!candidates.length) {
-    return pushLog(state, `${player.name} 还没有可约会·交友的对象。`)
+    return pushLog(state, `${player.name} 还没有可互动的对象。`)
   }
   const instant = !player.isHuman || state.autoEnabled
   if (instant) {
@@ -1456,7 +1417,7 @@ function dateConfirmVenue(state: GameState, venueId: string): GameState {
 
 function dateCancel(state: GameState): GameState {
   if (!state.pendingDate) return state
-  return pushLog({ ...state, pendingDate: null }, '取消了约会·交友安排。')
+  return pushLog({ ...state, pendingDate: null }, '取消了互动安排。')
 }
 
 function resolvePendingDateAuto(state: GameState): GameState {
@@ -1467,10 +1428,15 @@ function resolvePendingDateAuto(state: GameState): GameState {
   if (pd.step === 'pickPartner') {
     const list = dateableRelations(player)
     if (!list.length) return dateCancel(state)
-    const best = [...list].sort((a, b) => b.score - a.score)[0]
+    const best = [...list].sort((a, b) => b.affinity - a.affinity)[0]
     return datePickPartner(state, best.id)
   }
-  const affordable = DATE_VENUES.filter((v) => player.cash + 1e-9 >= v.cost)
+  const partner = player.relations.find((r) => r.id === pd.relationId)
+  const affordable = DATE_VENUES.filter(
+    (v) =>
+      player.cash + 1e-9 >= v.cost &&
+      (!partner || venueUnlockedFor(v, partner)),
+  )
   if (!affordable.length || !pd.relationId) return dateCancel(state)
   const venue = [...affordable].sort((a, b) => b.cost - a.cost)[0]
   return dateConfirmVenue(state, venue.id)
@@ -1613,7 +1579,7 @@ export function autoStep(state: GameState): GameState {
       let s = promote({ ...state, pendingDecision: null }, d.playerId)
       return releaseDeferredLocation(s)
     }
-    if (d.type === 'marriage') return marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, true)
+    if (d.type === 'marriage') return deepenBond({ ...state, pendingDecision: null }, d.playerId, d.relationId, true)
     if (d.type === 'bigSpend') return reduce({ ...state }, { type: 'CONFIRM_BIG_SPEND', accept: owner?.aiStyle === 'aggressive' })
     if (d.type === 'poach') return reduce({ ...state }, { type: 'CONFIRM_POACH', accept: false })
     if (d.type === 'bankrupt') return reduce({ ...state }, { type: 'RESOLVE_BANKRUPT' })
@@ -1710,7 +1676,7 @@ export function reduce(state: GameState, action: GameAction): GameState {
     case 'LOCATION_POACH':
       return locationPoach(state)
     case 'OFFICE_RECOMMEND':
-      return officeRecommend(state, action.kind)
+      return officeRecommend(state)
     case 'OFFICE_ADJUST':
       return officeAdjust(state, action.ownerId, action.relationId, action.direction)
     case 'OFFICE_POACH':
@@ -1823,7 +1789,7 @@ export function reduce(state: GameState, action: GameAction): GameState {
     case 'CONFIRM_MARRIAGE': {
       if (state.pendingDecision?.type !== 'marriage') return state
       const d = state.pendingDecision
-      const s = marry({ ...state, pendingDecision: null }, d.playerId, d.relationId, action.accept)
+      const s = deepenBond({ ...state, pendingDecision: null }, d.playerId, d.relationId, action.accept)
       return releaseDeferredLocation(s)
     }
     case 'CONFIRM_BIG_SPEND': {
@@ -1869,9 +1835,11 @@ export function reduce(state: GameState, action: GameAction): GameState {
         s = updatePlayer(s, d.playerId, (p) => ({
           ...p,
           cash: round2(p.cash - 0.15),
-          relations: p.relations.map((r) =>
-            r.id === d.relationId ? { ...r, score: Math.min(100, r.score + 5) } : r,
-          ),
+          relations: p.relations.map((r) => {
+            if (r.id !== d.relationId) return r
+            const { affinity } = applyAffinityDelta(r.affinity, 5)
+            return { ...r, affinity }
+          }),
         }))
         s = pushLog(s, '你花力气留住了关系。')
         return releaseDeferredLocation(s)

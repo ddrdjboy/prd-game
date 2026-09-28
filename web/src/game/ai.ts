@@ -1,4 +1,4 @@
-import { VACANT_COST, VACANT_HIRE_EXTRA, CASINO_BETS, SHOP_ITEMS, investOffersFor } from './location'
+import { VACANT_COST, VACANT_HIRE_EXTRA, SHOP_ITEMS, investOffersFor } from './location'
 import { OFFICE_POACH_COST, OFFICE_RECOMMEND_COST } from './office'
 import { VACANT_SHOP_TAGS } from './skills'
 import { shopCashflow } from './finance'
@@ -11,7 +11,7 @@ export type AiLocationPick =
   | { type: 'buyVacant'; relationId: string }
   | { type: 'buyItem'; itemId: string }
   | { type: 'poach' }
-  | { type: 'recommend'; kind: 'network' | 'romance' }
+  | { type: 'recommend' }
   | { type: 'upgrade'; shopId: string }
   | { type: 'rebind'; shopId: string; relationId: string }
   | { type: 'addStaff'; shopId: string; relationId: string }
@@ -21,15 +21,14 @@ export type AiLocationPick =
   | { type: 'buyInvest'; offerId: string }
 
 function weakestOp(p: PlayerState): string | null {
-  const ops = p.relations.filter((r) => r.status !== 'broken')
-  if (!ops.length) return null
-  return [...ops].sort((a, b) => a.score - b.score)[0].id
+  if (!p.relations.length) return null
+  return [...p.relations].sort((a, b) => a.affinity - b.affinity)[0].id
 }
 
 function skillMatchScore(player: PlayerState, relationId: string, tags: string[]): number {
   const r = player.relations.find((x) => x.id === relationId)
   if (!r) return 0
-  return r.skills.filter((s) => tags.includes(s)).length * 10 + r.score
+  return r.skills.filter((s) => tags.includes(s)).length * 10 + Math.max(0, r.affinity)
 }
 
 /** @param hasPoachTargets 是否存在可挖对象（由调用方算好） */
@@ -79,16 +78,16 @@ export function pickAiLocationAction(
         hasPoachTargets && player.poachCooldown <= 0 && player.cash + 1e-9 >= OFFICE_POACH_COST
       if (style === 'social') {
         if (canPoach) return { type: 'poach' }
-        if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend', kind: 'romance' }
+        if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend' }
         return { type: 'skip' }
       }
       if (style === 'aggressive') {
         if (canPoach) return { type: 'poach' }
-        if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend', kind: 'network' }
+        if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend' }
         return { type: 'skip' }
       }
       if (canPoach && Math.floor(player.cash * 100) % 4 === 0) return { type: 'poach' }
-      if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend', kind: 'network' }
+      if (player.cash + 1e-9 >= OFFICE_RECOMMEND_COST) return { type: 'recommend' }
       return { type: 'skip' }
     }
     case 'manage': {
@@ -107,7 +106,7 @@ export function pickAiLocationAction(
         const betterManager = shop.staffIds
           .map((id) => player.relations.find((r) => r.id === id))
           .filter((r): r is NonNullable<typeof r> => Boolean(r))
-          .sort((a, b) => b.score - a.score)[0]
+          .sort((a, b) => b.affinity - a.affinity)[0]
         if (betterManager && betterManager.id !== shop.managerId) {
           return { type: 'rebind', shopId: shop.id, relationId: betterManager.id }
         }
@@ -119,33 +118,23 @@ export function pickAiLocationAction(
       }
       return { type: 'skip' }
     }
-    case 'casino': {
-      if (style === 'steady') return { type: 'skip' }
-      if (style === 'social') {
-        const bet = CASINO_BETS[0]
-        return player.cash >= bet ? { type: 'gamble', bet } : { type: 'skip' }
-      }
-      const affordable = [...CASINO_BETS].reverse().find((b) => player.cash >= b)
-      return affordable != null ? { type: 'gamble', bet: affordable } : { type: 'skip' }
-    }
     case 'park': {
-      const weak = weakestOp(player)
-      if (weak) {
-        const rel = player.relations.find((r) => r.id === weak)
-        if (rel && rel.score < 55) return { type: 'parkChat', relationId: weak }
-        if (style === 'social') return { type: 'parkChat', relationId: weak }
+      if (style === 'social') {
+        const id = weakestOp(player)
+        if (id) return { type: 'parkChat', relationId: id }
       }
       return { type: 'parkRest' }
     }
     case 'invest': {
-      if (style === 'social') return { type: 'skip' }
-      const discount = player.trait === 'investDiscount' ? 0.9 : 1
-      const pool = investOffersFor(player.track)
-      const offers =
-        style === 'steady' ? pool.filter((o) => o.id === 'bond') : [...pool].reverse()
-      const pick = offers.find((o) => player.cash + 1e-9 >= o.cost * discount)
-      return pick ? { type: 'buyInvest', offerId: pick.id } : { type: 'skip' }
+      const offers = investOffersFor(player.track)
+      const pick = offers.find((o) => player.cash + 1e-9 >= o.cost)
+      if (pick && (style === 'aggressive' || player.cash > pick.cost * 2)) {
+        return { type: 'buyInvest', offerId: pick.id }
+      }
+      return { type: 'skip' }
     }
+    case 'casino':
+      return { type: 'gamble', bet: 0 }
     default:
       return { type: 'skip' }
   }

@@ -1,3 +1,4 @@
+import { migrateScoreToAffinity } from './game/affinity'
 import { initialSkillsForName } from './game/relationsCatalog'
 import { inferShopTypeId, shopTypeById } from './game/shopCatalog'
 import { shopTagsFromName, VACANT_SHOP_TAGS } from './game/skills'
@@ -12,8 +13,18 @@ type LegacyShop = Partial<Shop> &
     baseCashflow?: number
   }
 
-type LegacyRelation = Partial<Relation> &
-  Pick<Relation, 'id' | 'kind' | 'name' | 'score' | 'status' | 'locked'>
+type LegacyRelation = {
+  id: string
+  name: string
+  kind?: string
+  score?: number
+  affinity?: number
+  status?: string
+  locked?: boolean
+  skills?: string[]
+  training?: Relation['training']
+  portraitId?: string
+}
 
 function migrateShop(shop: LegacyShop): Shop {
   const typeId = shop.typeId ?? inferShopTypeId(shop.name)
@@ -62,8 +73,16 @@ function round2(n: number): number {
 }
 
 function migrateRelation(r: LegacyRelation): Relation {
+  const broken = r.status === 'broken'
+  const affinity =
+    typeof r.affinity === 'number'
+      ? r.affinity
+      : migrateScoreToAffinity(r.score ?? 40, broken)
   return {
-    ...r,
+    id: r.id,
+    name: r.name,
+    affinity,
+    locked: Boolean(r.locked) && affinity > 0,
     skills: r.skills?.length ? r.skills : initialSkillsForName(r.name),
     training: r.training ?? null,
     portraitId: r.portraitId,
@@ -83,6 +102,10 @@ export function migrateState(state: GameState): GameState {
       poachCooldown: p.poachCooldown ?? 0,
       maintainedRelationIds: p.maintainedRelationIds ?? [],
       negativePaydayStreak: p.negativePaydayStreak ?? 0,
+      trait: (p as { trait?: string }).trait === 'networkBoost' ||
+      (p as { trait?: string }).trait === 'romanceBoost'
+        ? 'relationBoost'
+        : p.trait,
       relations: p.relations.map((r) => migrateRelation(r as LegacyRelation)),
       shops: p.shops.map((s) => migrateShop(s as LegacyShop)),
     })),

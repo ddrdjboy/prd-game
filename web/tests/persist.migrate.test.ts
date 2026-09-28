@@ -21,10 +21,10 @@ describe('persist migrate', () => {
           relations: [
             {
               id: 'r1',
-              kind: 'network',
+
               name: '阿强',
-              score: 50,
-              status: 'stable',
+              affinity: 250,
+
               locked: false,
             },
           ],

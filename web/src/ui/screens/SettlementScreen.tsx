@@ -1,15 +1,13 @@
-import { relationKindLabel } from '../../game/dating'
+import { relationStageLabel } from '../../game/dating'
 import { scorePlayer } from '../../game/scoring'
 import type { GameState, Relation } from '../../game/types'
 import { Portrait } from '../components/Portrait'
 import './SettlementScreen.css'
 
 function highlightRelation(relations: Relation[]): Relation | null {
-  const alive = relations.filter((r) => r.status !== 'broken')
+  const alive = relations.filter((r) => r.affinity > 0)
   if (!alive.length) return null
-  const romance = alive.filter((r) => r.kind === 'romance')
-  const pool = romance.length ? romance : alive
-  return [...pool].sort((a, b) => b.score - a.score)[0] ?? null
+  return [...alive].sort((a, b) => b.affinity - a.affinity)[0] ?? null
 }
 
 type Props = {
@@ -24,17 +22,15 @@ export function SettlementScreen({ state, onRestart }: Props) {
   const youHighlight = highlightRelation(you.player.relations)
 
   const maxW = Math.max(1, ...scores.map((s) => Math.abs(s.score.netWorth)))
-  const maxN = Math.max(1, ...scores.map((s) => s.score.networkScore))
-  const maxR = Math.max(1, ...scores.map((s) => s.score.romanceScore))
+  const maxRel = Math.max(1, ...scores.map((s) => s.score.relationScore))
 
-  const radar = (nw: number, n: number, r: number) => {
-    const a = (nw / maxW) * 80
-    const b = (n / maxN) * 80
-    const c = (r / maxR) * 80
-    // triangle points around center 100,100
+  /** 二维：资产 vs 关系（对称三角简化为两轴展示） */
+  const radar = (nw: number, rel: number) => {
+    const a = (Math.abs(nw) / maxW) * 80
+    const b = (rel / maxRel) * 80
     const p1 = `${100},${100 - a}`
     const p2 = `${100 + b * 0.866},${100 + b * 0.5}`
-    const p3 = `${100 - c * 0.866},${100 + c * 0.5}`
+    const p3 = `${100 - b * 0.866},${100 + b * 0.5}`
     return `${p1} ${p2} ${p3}`
   }
 
@@ -51,7 +47,7 @@ export function SettlementScreen({ state, onRestart }: Props) {
       <p className="grade">评级 {you.score.grade}</p>
       <p className="comment">
         {bankrupt
-          ? '现金流断裂。下次注意支出节奏，开店与约会都要留发薪余粮。'
+          ? '现金流断裂。下次注意支出节奏，开店与互动都要留发薪余粮。'
           : you.score.comment}
       </p>
 
@@ -63,32 +59,27 @@ export function SettlementScreen({ state, onRestart }: Props) {
             size="lg"
           />
           <div>
-            <p className="settle-portrait-label">
-              {youHighlight.kind === 'romance' ? '最难忘的恋人' : '最靠谱的人脉'}
-            </p>
+            <p className="settle-portrait-label">最难忘的关系</p>
             <h2>{youHighlight.name}</h2>
             <p className="muted">
-              {relationKindLabel(youHighlight.kind)} · 好感 {youHighlight.score}
+              {relationStageLabel(youHighlight)} · 好感 {youHighlight.affinity}
             </p>
           </div>
         </div>
       )}
 
-      <svg className="radar" viewBox="0 0 200 200" aria-label="三维雷达">
+      <svg className="radar" viewBox="0 0 200 200" aria-label="财富与关系">
         <polygon points="100,20 170,160 30,160" fill="none" stroke="rgba(242,239,230,0.2)" />
         <polygon
-          points={radar(you.score.netWorth, you.score.networkScore, you.score.romanceScore)}
+          points={radar(you.score.netWorth, you.score.relationScore)}
           fill="rgba(226,177,74,0.35)"
           stroke="#e2b14a"
         />
         <text x="100" y="14" textAnchor="middle" fill="#a8b5ad" fontSize="10">
           资产
         </text>
-        <text x="178" y="168" textAnchor="middle" fill="#a8b5ad" fontSize="10">
-          人脉
-        </text>
-        <text x="22" y="168" textAnchor="middle" fill="#a8b5ad" fontSize="10">
-          恋人
+        <text x="100" y="178" textAnchor="middle" fill="#a8b5ad" fontSize="10">
+          关系
         </text>
       </svg>
 
@@ -99,8 +90,7 @@ export function SettlementScreen({ state, onRestart }: Props) {
               {player.name} · {score.grade}
             </h3>
             <p>净资产 {score.netWorth}</p>
-            <p>人脉 {score.networkScore}</p>
-            <p>恋人 {score.romanceScore}</p>
+            <p>关系 {score.relationScore}</p>
             <p>{score.free ? '已自由' : '未自由'}</p>
           </div>
         ))}

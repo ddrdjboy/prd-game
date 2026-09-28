@@ -1,25 +1,28 @@
+import { stageFromAffinity } from './affinity'
 import { calcFinance, isFinanciallyFree } from './finance'
 import type { PlayerState, ScoreResult } from './types'
+
+function stageWeight(affinity: number): number {
+  const stage = stageFromAffinity(affinity)
+  if (stage === 'intimate') return 1.3
+  if (stage === 'close') return 1.15
+  return 1
+}
 
 export function scorePlayer(player: PlayerState): ScoreResult {
   const finance = calcFinance(player)
   const free = isFinanciallyFree(player)
-  const networks = player.relations.filter((r) => r.kind === 'network' && r.status !== 'broken')
-  const romances = player.relations.filter((r) => r.kind === 'romance' && r.status !== 'broken')
-  const brokenRomance = player.relations.filter((r) => r.kind === 'romance' && r.status === 'broken').length
 
-  const networkScore = Math.round(
-    networks.reduce((s, r) => s + r.score * (r.status === 'partner' ? 1.3 : 1), 0),
-  )
-  const romanceScore = Math.round(
-    Math.max(
-      0,
-      romances.reduce((s, r) => s + r.score * (r.status === 'married' ? 1.4 : 1), 0) - brokenRomance * 20,
-    ),
+  const relationScore = Math.round(
+    player.relations.reduce((sum, r) => {
+      if (r.affinity <= 0) return sum
+      return sum + r.affinity * stageWeight(r.affinity)
+    }, 0),
   )
 
   const wealthPts = Math.max(0, finance.netWorth) * 10 + (free ? 40 : 0)
-  const total = wealthPts + networkScore * 0.15 + romanceScore * 0.15
+  // affinity 量纲约 ×5，系数下调使档位接近旧版
+  const total = wealthPts + relationScore * 0.04
 
   let grade: ScoreResult['grade'] = 'C'
   if (total >= 120) grade = 'S'
@@ -37,8 +40,7 @@ export function scorePlayer(player: PlayerState): ScoreResult {
   return {
     free,
     netWorth: finance.netWorth,
-    networkScore,
-    romanceScore,
+    relationScore,
     grade,
     comment,
     finance,

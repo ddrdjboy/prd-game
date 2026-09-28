@@ -49,17 +49,16 @@ export function diffPlayerTaste(before: PlayerState, after: PlayerState): TasteL
     if (!prev) {
       lines.push({
         label: `结识「${r.name}」`,
-        delta: `好感 ${r.score}`,
+        delta: `好感 ${r.affinity}`,
         tone: 'pos',
       })
       continue
     }
-    const scoreD = r.score - prev.score
-    if (Math.abs(scoreD) > 1e-9 || r.status !== prev.status) {
-      const statusBit = r.status !== prev.status ? ` · ${statusHint(r.status)}` : ''
+    const scoreD = r.affinity - prev.affinity
+    if (Math.abs(scoreD) > 1e-9) {
       lines.push({
         label: `「${r.name}」`,
-        delta: `${fmt(scoreD)} 好感${statusBit}`,
+        delta: `${fmt(scoreD)} 好感`,
         tone: toneOf(scoreD),
       })
     }
@@ -129,17 +128,3 @@ export function diffPlayerTaste(before: PlayerState, after: PlayerState): TasteL
   return lines
 }
 
-function statusHint(status: string): string {
-  switch (status) {
-    case 'broken':
-      return '破裂'
-    case 'partner':
-      return '升为合伙人'
-    case 'stable':
-      return '变稳定'
-    case 'married':
-      return '已婚'
-    default:
-      return status
-  }
-}

@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest'
+import { applyAffinityDelta } from '../src/game/affinity'
 import { createGame } from '../src/game/createGame'
+import { PARK_CHAT_BOOST } from '../src/game/location'
 import { reduce } from '../src/game/reduce'
 import type { GameState, Relation } from '../src/game/types'
 
 const rel: Relation = {
   id: 'r1',
-  kind: 'network',
   name: '阿强',
-  score: 40,
-  status: 'stable',
+  affinity: 200,
+  skills: [],
+  training: null,
   locked: false,
 }
 
@@ -35,7 +37,9 @@ describe('park / invest locations', () => {
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
     g = at(g, 'park')
     g = reduce(g, { type: 'LOCATION_PARK_CHAT', relationId: 'r1' })
-    expect(g.players[0].relations[0].score).toBe(45)
+    expect(g.players[0].relations[0].affinity).toBe(
+      applyAffinityDelta(200, PARK_CHAT_BOOST).affinity,
+    )
     expect(g.pendingLocation).toBeNull()
   })
 

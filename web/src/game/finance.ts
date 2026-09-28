@@ -1,10 +1,11 @@
-import { LIABILITY_INTEREST_RATE, MAINTENANCE_PER_RELATION, MARRIAGE_EXTRA_EXPENSE } from './config'
+import { LIABILITY_INTEREST_RATE, MAINTENANCE_PER_RELATION } from './config'
 import { rollSeasonFactor, shopTypeById } from './shopCatalog'
 import { SKILL_BONUS_CAP, skillById } from './skills'
 import type { FinanceSnapshot, PlayerState, Relation, Shop } from './types'
 
-export function relationMultiplier(score: number): number {
-  return 0.5 + score / 200
+/** affinity [-100,500] → 店铺人力系数，仇恨按 0 计 */
+export function relationMultiplier(affinity: number): number {
+  return 0.5 + Math.max(0, affinity) / 500
 }
 
 export interface ShopBreakdown {
@@ -21,13 +22,13 @@ export function shopStaffMods(
 ): { staffScore: number; skillBonus: number; managerBonus: number; hasStaff: boolean } {
   const staff = shop.staffIds
     .map((id) => relations.find((r) => r.id === id))
-    .filter((r): r is Relation => r != null && r.status !== 'broken')
+    .filter((r): r is Relation => r != null)
   if (!staff.length) {
     return { staffScore: 0, skillBonus: 0, managerBonus: 0, hasStaff: false }
   }
 
   const staffScore =
-    staff.reduce((sum, r) => sum + relationMultiplier(r.score), 0) / staff.length
+    staff.reduce((sum, r) => sum + relationMultiplier(r.affinity), 0) / staff.length
 
   let skillBonus = 0
   for (const r of staff) {
@@ -75,12 +76,9 @@ export function calcPassiveIncome(player: PlayerState): number {
 }
 
 export function calcTotalExpense(player: PlayerState): number {
-  const maintenance =
-    player.relations.filter((r) => r.status !== 'broken').length * MAINTENANCE_PER_RELATION
-  const marriage =
-    player.relations.some((r) => r.status === 'married') ? MARRIAGE_EXTRA_EXPENSE : 0
+  const maintenance = player.relations.length * MAINTENANCE_PER_RELATION
   const interest = player.liabilities * LIABILITY_INTEREST_RATE
-  let expense = player.fixedExpense + maintenance + marriage + interest
+  let expense = player.fixedExpense + maintenance + interest
   if (player.trait === 'expenseResist') expense *= 0.9
   return round2(expense)
 }
