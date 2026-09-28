@@ -59,14 +59,12 @@ export function FinancePanel({ player, open, onOpenChange }: Props) {
           <div>
             <h4>关系</h4>
             <ul className="rel-list">
-              {player.relations.filter((r) => r.status !== 'broken').length === 0 && (
+              {player.relations.length === 0 && (
                 <li className="muted">暂无</li>
               )}
-              {player.relations
-                .filter((r) => r.status !== 'broken')
-                .map((r) => (
+              {player.relations.map((r) => (
                   <li key={r.id}>
-                    {r.kind === 'network' ? '人脉' : '恋人'}·{r.name} {r.score}
+                    关系·{r.name} {r.affinity}
                     {r.locked ? ' 🔒' : ''}
                   </li>
                 ))}

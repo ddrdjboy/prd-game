@@ -30,18 +30,20 @@ function baseState(): GameState {
             relations: [
               makeRelation({
                 id: 'mgr1',
-                kind: 'network',
+
                 name: '阿伟',
-                score: 40,
-                status: 'stable',
+                affinity: 200,
+                skills: [],
+                training: null,
                 locked: false,
               }),
               makeRelation({
                 id: 'st1',
-                kind: 'network',
+
                 name: '小美',
-                score: 55,
-                status: 'stable',
+                affinity: 275,
+                skills: [],
+                training: null,
                 locked: false,
               }),
             ],
@@ -99,10 +101,11 @@ describe('visit opponent shop', () => {
               relations: [
                 makeRelation({
                   id: 'r1',
-                  kind: 'network',
+
                   name: '店长甲',
-                  score: 50,
-                  status: 'stable',
+                  affinity: 250,
+                  skills: [],
+                  training: null,
                   locked: false,
                 }),
               ],
@@ -261,11 +264,11 @@ describe('visit opponent shop', () => {
           relations: [
             {
               id: 'r1',
-              kind: 'network' as const,
               name: '阿强',
-              score: 40,
-              status: 'stable' as const,
+              affinity: 200,
               locked: false,
+              skills: [],
+              training: null,
             },
           ],
         },

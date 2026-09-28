@@ -137,7 +137,7 @@ export function visitPickStaff(state: GameState, relationId: string): GameState 
   if (!visitor || !ctx) return clearVisit(state)
   if (!ctx.shop.staffIds.includes(relationId)) return state
   const rel = ctx.owner.relations.find((r) => r.id === relationId)
-  if (!rel || rel.status === 'broken') return state
+  if (!rel) return state
   if (visitor.cash + 1e-9 < v.tipFee) {
     return pushLog(state, `${visitor.name} 现金不足，付不起服务小费（需 ${v.tipFee} 万）。`)
   }
@@ -211,7 +211,7 @@ export function visitPoachSpin(
   const ctx = getVisitShop(state, v)
   if (!visitor || !ctx) return clearVisit(state)
   const rel = ctx.owner.relations.find((r) => r.id === v.staffId)
-  if (!rel || rel.status === 'broken' || rel.locked) {
+  if (!rel || rel.locked) {
     return pushLog(
       { ...state, pendingVisitShop: { ...v, lastPoachOk: false } },
       '该对象无法挖角。',
@@ -230,7 +230,7 @@ export function visitPoachSpin(
     1 + Math.floor(rng.next() * 9),
     1 + Math.floor(rng.next() * 9),
   ]
-  const chance = visitPoachChance(rel.score, v.rapport, reels, poachSuccessChance)
+  const chance = visitPoachChance(rel.affinity, v.rapport, reels, poachSuccessChance)
   const ok = rng.next() < chance
 
   let s = updatePlayer(state, v.playerId, (p) => ({
@@ -311,7 +311,7 @@ export function visitAiStep(
     const staff =
       ctx?.shop.staffIds
         .map((id) => ctx.owner.relations.find((r) => r.id === id))
-        .filter((r): r is NonNullable<typeof r> => r != null && r.status !== 'broken') ?? []
+        .filter((r): r is NonNullable<typeof r> => r != null && true) ?? []
     if (!staff.length || visitor.cash + 1e-9 < visit.tipFee) {
       return visitLeave(s)
     }

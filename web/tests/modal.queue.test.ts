@@ -5,10 +5,11 @@ import type { GameState, Relation } from '../src/game/types'
 
 const rel: Relation = {
   id: 'r1',
-  kind: 'network',
+
   name: '阿强',
-  score: 60,
-  status: 'stable',
+  affinity: 300,
+  skills: [],
+  training: null,
   locked: false,
 }
 

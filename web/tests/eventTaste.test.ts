@@ -28,13 +28,11 @@ function base(over: Partial<PlayerState> = {}): PlayerState {
 }
 
 const rel = (over: Partial<Relation> & Pick<Relation, 'id'>): Relation => ({
-  kind: 'network',
   name: '阿强',
-  score: 40,
-  status: 'stable',
-  locked: false,
+  affinity: 200,
   skills: [],
   training: null,
+  locked: false,
   ...over,
 })
 
@@ -72,15 +70,15 @@ describe('diffPlayerTaste', () => {
   })
 
   it('reports new and boosted relations', () => {
-    const before = base({ relations: [rel({ id: 'r1', score: 40 })] })
+    const before = base({ relations: [rel({ id: 'r1', affinity: 200 })] })
     const after = base({
       relations: [
-        rel({ id: 'r1', score: 52 }),
-        rel({ id: 'r2', name: '小夏', kind: 'romance', status: 'dating', score: 45 }),
+        rel({ id: 'r1', affinity: 260 }),
+        rel({ id: 'r2', name: '小夏', affinity: 225 }),
       ],
     })
     const lines = diffPlayerTaste(before, after)
-    expect(lines.some((l) => l.label.includes('阿强') && l.delta.includes('+12'))).toBe(true)
+    expect(lines.some((l) => l.label.includes('阿强') && l.delta.includes('+60'))).toBe(true)
     expect(lines.some((l) => l.label.includes('结识') && l.label.includes('小夏'))).toBe(true)
   })
 

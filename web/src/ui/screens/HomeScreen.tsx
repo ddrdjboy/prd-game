@@ -24,7 +24,7 @@ export function HomeScreen({ onStart, onContinue }: Props) {
         <p className="eyebrow">网页人生财务竞技</p>
         <h1>45岁财富自由</h1>
         <p className="lede">
-          18 岁入职，四季推进。打工人圈攒被动收入，晋级投资人圈；45 岁用资产、人脉与恋人关系交卷。
+          18 岁入职，四季推进。打工人圈攒被动收入，晋级投资人圈；45 岁用资产与统一关系好感交卷。
         </p>
         <label className="name-field">
           <span>你的名字</span>

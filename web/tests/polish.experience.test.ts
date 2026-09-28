@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import { applyAffinityDelta } from '../src/game/affinity'
 import { EARLY_AGE_MAX, EARLY_PAY_BONUS, INVESTOR_START_BONUS } from '../src/game/config'
 import { createGame } from '../src/game/createGame'
 import { pickAiDate } from '../src/game/dating'
 import { calcFinance } from '../src/game/finance'
-import { investOffersFor } from '../src/game/location'
+import { investOffersFor, PARK_CHAT_BOOST } from '../src/game/location'
 import { reduce } from '../src/game/reduce'
 import type { GameState, Relation } from '../src/game/types'
 
@@ -85,18 +86,20 @@ describe('体验打磨', () => {
   it('park chat marks relation maintained so endTurn skips its decay', () => {
     const rel: Relation = {
       id: 'r-keep',
-      kind: 'network',
+
       name: '阿强',
-      score: 40,
-      status: 'stable',
+      affinity: 200,
+      skills: [],
+      training: null,
       locked: false,
     }
     const other: Relation = {
       id: 'r-cool',
-      kind: 'network',
+
       name: '阿伟',
-      score: 40,
-      status: 'stable',
+      affinity: 200,
+      skills: [],
+      training: null,
       locked: false,
     }
     let g = withCareer(10)
@@ -119,31 +122,34 @@ describe('体验打磨', () => {
     }
     g = reduce(g, { type: 'LOCATION_PARK_CHAT', relationId: 'r-keep' })
     expect(g.players[0].maintainedRelationIds).toContain('r-keep')
-    expect(g.players[0].relations[0].score).toBe(45)
+    const keptAfterChat = applyAffinityDelta(200, PARK_CHAT_BOOST).affinity
+    expect(g.players[0].relations[0].affinity).toBe(keptAfterChat)
 
     g = reduce(g, { type: 'END_TURN' })
     const after = g.players.find((p) => p.id === id)!
-    expect(after.relations.find((r) => r.id === 'r-keep')!.score).toBe(45)
-    expect(after.relations.find((r) => r.id === 'r-cool')!.score).toBe(36)
+    expect(after.relations.find((r) => r.id === 'r-keep')!.affinity).toBe(keptAfterChat)
+    expect(after.relations.find((r) => r.id === 'r-cool')!.affinity).toBe(
+      applyAffinityDelta(200, -4).affinity,
+    )
     expect(after.maintainedRelationIds).toEqual([])
   })
 
-  it('pickAiDate prefers lowest score then cheapest venue', () => {
+  it('pickAiDate prefers lowest affinity then cheapest unlocked venue', () => {
     let g = withCareer(11)
     const low: Relation = {
       id: 'low',
-      kind: 'romance',
       name: '低',
-      score: 30,
-      status: 'dating',
+      affinity: 150,
+      skills: [],
+      training: null,
       locked: false,
     }
     const high: Relation = {
       id: 'high',
-      kind: 'romance',
       name: '高',
-      score: 70,
-      status: 'dating',
+      affinity: 350,
+      skills: [],
+      training: null,
       locked: false,
     }
     g = {
@@ -154,6 +160,6 @@ describe('体验打磨', () => {
     }
     const pick = pickAiDate(g.players[0])
     expect(pick?.relationId).toBe('low')
-    expect(pick?.venueId).toBe('park')
+    expect(pick?.venueId).toBe('chat')
   })
 })

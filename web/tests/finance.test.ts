@@ -7,10 +7,10 @@ import type { PlayerState, Relation, Shop } from '../src/game/types'
 function baseRel(over: Partial<Relation> = {}): Relation {
   return {
     id: 'r1',
-    kind: 'network',
+
     name: '阿强',
-    score: 80,
-    status: 'stable',
+    affinity: 400,
+
     locked: false,
     skills: ['sales'],
     training: null,
@@ -48,6 +48,7 @@ function basePlayer(over: Partial<PlayerState> = {}): PlayerState {
     trait: null,
     poachCooldown: 0,
     maintainedRelationIds: [],
+    negativePaydayStreak: 0,
     ...over,
   }
 }
@@ -110,7 +111,7 @@ describe('finance shop P&L', () => {
     const rich2 = basePlayer({
       fixedExpense: 0.2,
       shops: [shop],
-      relations: [baseRel({ score: 100, status: 'partner', locked: true, skills: ['retail', 'manage'] })],
+      relations: [baseRel({ affinity: 500, locked: true, skills: ['retail', 'manage'] })],
     })
     expect(canPromote(rich2)).toBe(true)
     expect(canPromote(poor)).toBe(false)
@@ -127,7 +128,7 @@ describe('finance shop P&L', () => {
     const rich = basePlayer({
       fixedExpense: 0.2,
       shops: [shop],
-      relations: [baseRel({ name: 'X', score: 100, status: 'partner', locked: true, skills: ['retail'] })],
+      relations: [baseRel({ name: 'X', affinity: 500, locked: true, skills: ['retail'] })],
     })
     expect(isFinanciallyFree(rich)).toBe(true)
   })

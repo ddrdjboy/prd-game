@@ -1,16 +1,16 @@
+import { stageFromAffinity, stageGte, type AffinityStage } from './affinity'
 import type { EventKind, PlayerState } from './types'
 
 export type EventEffect =
   | { type: 'cash'; delta: number }
   | { type: 'salary'; delta: number }
-  | { type: 'meet'; relationKind: 'network' | 'romance'; score?: number }
-  | { type: 'boostRelation'; amount: number; kind?: 'network' | 'romance' }
+  | { type: 'meet'; affinity?: number }
+  | { type: 'boostRelation'; amount: number; relationId?: string }
   | { type: 'offerShop'; name: string; baseCashflow: number; cost: number; typeId?: string }
   | { type: 'offerInvest'; name: string; cost: number; cashflow: number; big?: boolean }
   | { type: 'marketBump'; factor: number }
   | { type: 'liability'; delta: number }
   | { type: 'poachAttempt' }
-  | { type: 'marriagePrompt' }
 
 export interface EventChoice {
   id: string
@@ -24,6 +24,27 @@ export interface GameEvent {
   title: string
   text: string
   choices: EventChoice[]
+  /** 可选：按关系阶段替换选项（取玩家最高好感阶段匹配的最高档） */
+  choiceSets?: { minStage: AffinityStage; choices: EventChoice[] }[]
+}
+
+/** 按玩家最高关系阶段解析最终选项 */
+export function resolveEventChoices(event: GameEvent, player: PlayerState): EventChoice[] {
+  if (!event.choiceSets?.length) return event.choices
+  let best = player.relations.reduce<AffinityStage | null>((acc, r) => {
+    const st = stageFromAffinity(r.affinity)
+    if (!acc || stageIndexHigher(st, acc)) return st
+    return acc
+  }, null)
+  if (!best) best = 'cold'
+  const matched = [...event.choiceSets]
+    .filter((s) => stageGte(best!, s.minStage))
+    .sort((a, b) => (stageGte(a.minStage, b.minStage) ? -1 : 1))[0]
+  return matched?.choices ?? event.choices
+}
+
+function stageIndexHigher(a: AffinityStage, b: AffinityStage): boolean {
+  return stageGte(a, b) && a !== b
 }
 
 function c(
@@ -52,10 +73,11 @@ export function canAffordChoice(cash: number, effects: EventEffect[]): boolean {
 /** AI / 自动季选策；若全部付不起则返回 `__skip__`（空手过关） */
 export function pickEventChoice(
   event: GameEvent,
-  player: Pick<PlayerState, 'cash' | 'aiStyle'>,
+  player: Pick<PlayerState, 'cash' | 'aiStyle' | 'relations'>,
 ): string {
   const style = player.aiStyle ?? 'steady'
-  const affordable = event.choices.filter((ch) => canAffordChoice(player.cash, ch.effects))
+  const choices = resolveEventChoices(event, player as PlayerState)
+  const affordable = choices.filter((ch) => canAffordChoice(player.cash, ch.effects))
   if (!affordable.length) return '__skip__'
 
   const raise = affordable.find((x) => x.id === 'raise')
@@ -150,7 +172,7 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '上架小课', [{ type: 'cash', delta: 0.5 }]),
       c('decline', '先不公开', []),
-      c('raise', '砸广告推广', [{ type: 'cash', delta: 0.35 }, { type: 'boostRelation', amount: 4, kind: 'network' }]),
+      c('raise', '砸广告推广', [{ type: 'cash', delta: 0.35 }, { type: 'boostRelation', amount: 4 }]),
     ],
   },
   {
@@ -311,9 +333,9 @@ export const EVENTS: GameEvent[] = [
     title: '朋友婚礼',
     text: '随礼只能硬着头皮。',
     choices: [
-      c('accept', '正常随礼', [{ type: 'cash', delta: -0.25 }, { type: 'boostRelation', amount: 5, kind: 'network' }]),
-      c('decline', '象征性一点', [{ type: 'boostRelation', amount: -2, kind: 'network' }]),
-      c('raise', '大气一笔', [{ type: 'cash', delta: -0.45 }, { type: 'boostRelation', amount: 10, kind: 'network' }]),
+      c('accept', '正常随礼', [{ type: 'cash', delta: -0.25 }, { type: 'boostRelation', amount: 5 }]),
+      c('decline', '象征性一点', [{ type: 'boostRelation', amount: -2 }]),
+      c('raise', '大气一笔', [{ type: 'cash', delta: -0.45 }, { type: 'boostRelation', amount: 10 }]),
     ],
   },
   {
@@ -356,12 +378,12 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '经济游', [
         { type: 'cash', delta: -0.28 },
-        { type: 'boostRelation', amount: 5, kind: 'romance' },
+        { type: 'boostRelation', amount: 5 },
       ]),
       c('decline', '宅家', []),
       c('raise', '升级度假', [
         { type: 'cash', delta: -0.5 },
-        { type: 'boostRelation', amount: 12, kind: 'romance' },
+        { type: 'boostRelation', amount: 12 },
       ]),
     ],
   },
@@ -382,7 +404,7 @@ export const EVENTS: GameEvent[] = [
     text: '群里抢到了大红包。',
     choices: [
       c('accept', '收下', [{ type: 'cash', delta: 0.15 }]),
-      c('decline', '转赠群友', [{ type: 'boostRelation', amount: 6, kind: 'network' }]),
+      c('decline', '转赠群友', [{ type: 'boostRelation', amount: 6 }]),
     ],
   },
 
@@ -393,11 +415,11 @@ export const EVENTS: GameEvent[] = [
     title: '新同事',
     text: '茶水间认识了靠谱同事。',
     choices: [
-      c('accept', '多聊几句', [{ type: 'meet', relationKind: 'network', score: 40 }]),
+      c('accept', '多聊几句', [{ type: 'meet', affinity: 40 }]),
       c('decline', '点头走开', []),
       c('raise', '请喝咖啡深聊', [
         { type: 'cash', delta: -0.08 },
-        { type: 'meet', relationKind: 'network', score: 55 },
+        { type: 'meet', affinity: 55 },
       ]),
     ],
   },
@@ -409,13 +431,58 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '赴约', [
         { type: 'cash', delta: -0.15 },
-        { type: 'meet', relationKind: 'network', score: 45 },
+        { type: 'meet', affinity: 45 },
       ]),
-      c('decline', '推掉', [{ type: 'boostRelation', amount: -2, kind: 'network' }]),
+      c('decline', '推掉', [{ type: 'boostRelation', amount: -2 }]),
       c('raise', '做东加菜', [
         { type: 'cash', delta: -0.35 },
-        { type: 'meet', relationKind: 'network', score: 60 },
+        { type: 'meet', affinity: 60 },
       ]),
+    ],
+    choiceSets: [
+      {
+        minStage: 'hate',
+        choices: [
+          c('accept', '勉强露面道歉', [
+            { type: 'cash', delta: -0.1 },
+            { type: 'boostRelation', amount: 8 },
+          ]),
+          c('decline', '彻底无视', [{ type: 'boostRelation', amount: -6 }]),
+          c('raise', '私下真诚和解', [
+            { type: 'cash', delta: -0.25 },
+            { type: 'boostRelation', amount: 14 },
+          ]),
+        ],
+      },
+      {
+        minStage: 'friendly',
+        choices: [
+          c('accept', '轻松赴约', [
+            { type: 'cash', delta: -0.15 },
+            { type: 'boostRelation', amount: 10 },
+          ]),
+          c('decline', '改约下次', []),
+          c('raise', '做东并介绍圈子', [
+            { type: 'cash', delta: -0.4 },
+            { type: 'boostRelation', amount: 16 },
+            { type: 'meet', affinity: 150 },
+          ]),
+        ],
+      },
+      {
+        minStage: 'intimate',
+        choices: [
+          c('accept', '带上对方一起见客户', [
+            { type: 'cash', delta: -0.2 },
+            { type: 'boostRelation', amount: 12 },
+          ]),
+          c('decline', '自己去，回来细说', [{ type: 'boostRelation', amount: 4 }]),
+          c('raise', '饭局后深夜长谈', [
+            { type: 'cash', delta: -0.5 },
+            { type: 'boostRelation', amount: 22 },
+          ]),
+        ],
+      },
     ],
   },
   {
@@ -424,11 +491,11 @@ export const EVENTS: GameEvent[] = [
     title: '偶遇',
     text: '书店里对上了眼。',
     choices: [
-      c('accept', '要联系方式', [{ type: 'meet', relationKind: 'romance', score: 35 }]),
+      c('accept', '要联系方式', [{ type: 'meet', affinity: 35 }]),
       c('decline', '装作看书', []),
       c('raise', '请喝杯咖啡', [
         { type: 'cash', delta: -0.1 },
-        { type: 'meet', relationKind: 'romance', score: 48 },
+        { type: 'meet', affinity: 48 },
       ]),
     ],
   },
@@ -438,11 +505,11 @@ export const EVENTS: GameEvent[] = [
     title: '朋友介绍',
     text: '朋友张罗着给你相亲。',
     choices: [
-      c('accept', '见一面', [{ type: 'meet', relationKind: 'romance', score: 40 }]),
+      c('accept', '见一面', [{ type: 'meet', affinity: 40 }]),
       c('decline', '下次再说', []),
       c('raise', '认真打扮赴约', [
         { type: 'cash', delta: -0.12 },
-        { type: 'meet', relationKind: 'romance', score: 52 },
+        { type: 'meet', affinity: 52 },
       ]),
     ],
   },
@@ -497,12 +564,12 @@ export const EVENTS: GameEvent[] = [
     title: '求婚念头',
     text: '关系到了谈婚论嫁的时候。',
     choices: [
-      c('accept', '求婚', [{ type: 'marriagePrompt' }]),
-      c('decline', '再等等', [{ type: 'boostRelation', amount: -5, kind: 'romance' }]),
+      c('accept', '求婚', [{ type: 'boostRelation', amount: 8 }]),
+      c('decline', '再等等', [{ type: 'boostRelation', amount: -5 }]),
       c('raise', '盛大求婚', [
         { type: 'cash', delta: -0.8 },
-        { type: 'boostRelation', amount: 10, kind: 'romance' },
-        { type: 'marriagePrompt' },
+        { type: 'boostRelation', amount: 10 },
+        { type: 'boostRelation', amount: 8 },
       ]),
     ],
   },
@@ -512,11 +579,11 @@ export const EVENTS: GameEvent[] = [
     title: '导师提携',
     text: '前辈愿意带你。',
     choices: [
-      c('accept', '拜师', [{ type: 'meet', relationKind: 'network', score: 55 }]),
+      c('accept', '拜师', [{ type: 'meet', affinity: 55 }]),
       c('decline', '保持距离', []),
       c('raise', '请吃饭深交', [
         { type: 'cash', delta: -0.2 },
-        { type: 'meet', relationKind: 'network', score: 70 },
+        { type: 'meet', affinity: 70 },
       ]),
     ],
   },
@@ -528,12 +595,12 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '简单庆祝', [
         { type: 'cash', delta: -0.15 },
-        { type: 'boostRelation', amount: 15, kind: 'romance' },
+        { type: 'boostRelation', amount: 15 },
       ]),
-      c('decline', '口头纪念', [{ type: 'boostRelation', amount: 3, kind: 'romance' }]),
+      c('decline', '口头纪念', [{ type: 'boostRelation', amount: 3 }]),
       c('raise', '惊喜派对', [
         { type: 'cash', delta: -0.4 },
-        { type: 'boostRelation', amount: 22, kind: 'romance' },
+        { type: 'boostRelation', amount: 22 },
       ]),
     ],
   },
@@ -597,12 +664,12 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '加薪抚慰', [
         { type: 'cash', delta: -0.2 },
-        { type: 'boostRelation', amount: 8, kind: 'network' },
+        { type: 'boostRelation', amount: 8 },
       ]),
-      c('decline', '先拖着', [{ type: 'boostRelation', amount: -5, kind: 'network' }]),
+      c('decline', '先拖着', [{ type: 'boostRelation', amount: -5 }]),
       c('raise', '分红+聚餐', [
         { type: 'cash', delta: -0.4 },
-        { type: 'boostRelation', amount: 14, kind: 'network' },
+        { type: 'boostRelation', amount: 14 },
       ]),
     ],
   },
@@ -639,13 +706,13 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '参与联名', [
         { type: 'cash', delta: 0.3 },
-        { type: 'boostRelation', amount: 8, kind: 'network' },
+        { type: 'boostRelation', amount: 8 },
       ]),
       c('decline', '自己干', []),
       c('raise', '主赞助', [
         { type: 'cash', delta: -0.3 },
         { type: 'cash', delta: 0.55 },
-        { type: 'boostRelation', amount: 12, kind: 'network' },
+        { type: 'boostRelation', amount: 12 },
       ]),
     ],
   },
@@ -717,9 +784,9 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '硬着头皮去', [
         { type: 'cash', delta: -0.05 },
-        { type: 'boostRelation', amount: 5, kind: 'network' },
+        { type: 'boostRelation', amount: 5 },
       ]),
-      c('decline', '婉拒', [{ type: 'boostRelation', amount: -4, kind: 'network' }]),
+      c('decline', '婉拒', [{ type: 'boostRelation', amount: -4 }]),
     ],
   },
   {
@@ -730,12 +797,12 @@ export const EVENTS: GameEvent[] = [
     choices: [
       c('accept', '参加', [
         { type: 'cash', delta: -0.1 },
-        { type: 'boostRelation', amount: 8, kind: 'network' },
+        { type: 'boostRelation', amount: 8 },
       ]),
       c('decline', '早退', []),
       c('raise', '多买几轮', [
         { type: 'cash', delta: -0.25 },
-        { type: 'boostRelation', amount: 14, kind: 'network' },
+        { type: 'boostRelation', amount: 14 },
       ]),
     ],
   },
@@ -877,11 +944,11 @@ export const EVENTS: GameEvent[] = [
     title: '老友叙旧',
     text: '人脉温度回升。',
     choices: [
-      c('accept', '好好聊聊', [{ type: 'boostRelation', amount: 6, kind: 'network' }]),
-      c('decline', '寒暄几句', [{ type: 'boostRelation', amount: 2, kind: 'network' }]),
+      c('accept', '好好聊聊', [{ type: 'boostRelation', amount: 6 }]),
+      c('decline', '寒暄几句', [{ type: 'boostRelation', amount: 2 }]),
       c('raise', '请顿饭', [
         { type: 'cash', delta: -0.15 },
-        { type: 'boostRelation', amount: 12, kind: 'network' },
+        { type: 'boostRelation', amount: 12 },
       ]),
     ],
   },
@@ -911,7 +978,7 @@ export const EVENTS: GameEvent[] = [
     title: '社区活动',
     text: '可能认识新面孔。',
     choices: [
-      c('accept', '参加', [{ type: 'meet', relationKind: 'network', score: 30 }]),
+      c('accept', '参加', [{ type: 'meet', affinity: 30 }]),
       c('decline', '路过', []),
     ],
   },
@@ -981,7 +1048,7 @@ export const EVENTS: GameEvent[] = [
     title: '给自己写信',
     text: '写给 45 岁的自己。',
     choices: [
-      c('accept', '认真写', [{ type: 'boostRelation', amount: 5, kind: 'romance' }]),
+      c('accept', '认真写', [{ type: 'boostRelation', amount: 5 }]),
       c('decline', '写不下去', []),
     ],
   },

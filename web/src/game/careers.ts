@@ -16,8 +16,8 @@ export const CAREERS: Career[] = [
     salary: 1.2,
     fixedExpense: 0.85,
     startingCash: 1.5,
-    trait: 'networkBoost',
-    traitLabel: '人脉事件加成',
+    trait: 'relationBoost',
+    traitLabel: '关系互动加成',
   },
   {
     id: 'nurse',
@@ -43,8 +43,8 @@ export const CAREERS: Career[] = [
     salary: 1.15,
     fixedExpense: 0.8,
     startingCash: 1.4,
-    trait: 'romanceBoost',
-    traitLabel: '恋爱好感更快',
+    trait: 'relationBoost',
+    traitLabel: '关系互动加成',
   },
   {
     id: 'teacher',
@@ -52,8 +52,8 @@ export const CAREERS: Career[] = [
     salary: 1.05,
     fixedExpense: 0.72,
     startingCash: 1.6,
-    trait: 'networkBoost',
-    traitLabel: '人脉事件加成',
+    trait: 'relationBoost',
+    traitLabel: '关系互动加成',
   },
   {
     id: 'chef',
@@ -61,8 +61,8 @@ export const CAREERS: Career[] = [
     salary: 0.95,
     fixedExpense: 0.65,
     startingCash: 1.0,
-    trait: 'romanceBoost',
-    traitLabel: '恋爱好感更快',
+    trait: 'relationBoost',
+    traitLabel: '关系互动加成',
   },
   {
     id: 'lawyer',
@@ -79,8 +79,8 @@ export const CAREERS: Career[] = [
     salary: 0.9,
     fixedExpense: 0.7,
     startingCash: 1.1,
-    trait: 'networkBoost',
-    traitLabel: '人脉事件加成',
+    trait: 'relationBoost',
+    traitLabel: '关系互动加成',
   },
 ]
 

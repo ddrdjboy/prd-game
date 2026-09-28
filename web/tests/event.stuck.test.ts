@@ -32,7 +32,7 @@ describe('event affordability stuck fix', () => {
         eventId: 'biz2',
         title: '淡季',
         text: 'x',
-        kind: 'business',
+
         landIndex: 0,
         landTrack: 'worker',
       },

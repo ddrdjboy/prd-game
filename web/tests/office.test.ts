@@ -1,20 +1,18 @@
 import { describe, it, expect } from 'vitest'
+import { applyAffinityDelta } from '../src/game/affinity'
 import { createGame } from '../src/game/createGame'
 import { OFFICE_POACH_COST, OFFICE_RECOMMEND_COST, OFFICE_UP_COST } from '../src/game/office'
 import { reduce } from '../src/game/reduce'
 import type { GameState, Relation } from '../src/game/types'
 
+function rel(partial: Partial<Relation> & Pick<Relation, 'id' | 'name' | 'affinity'>): Relation {
+  return { locked: false, skills: [], training: null, ...partial }
+}
+
 function baseWithOffice(): GameState {
   let g = createGame({ seatCount: 2, seed: 21, endAge: 45 })
   g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-  const aiRel: Relation = {
-    id: 'ai-rel-1',
-    kind: 'network',
-    name: '老周',
-    score: 40,
-    status: 'stable',
-    locked: false,
-  }
+  const aiRel = rel({ id: 'ai-rel-1', name: '老周', affinity: 200 })
   return {
     ...g,
     players: g.players.map((p, i) =>
@@ -33,28 +31,22 @@ function baseWithOffice(): GameState {
 }
 
 describe('private office', () => {
-  it('recommends a new network friend', () => {
+  it('recommends a new friend', () => {
     const g = baseWithOffice()
-    const after = reduce(g, { type: 'OFFICE_RECOMMEND', kind: 'network' })
+    const after = reduce(g, { type: 'OFFICE_RECOMMEND' })
     expect(after.pendingLocation).toBeNull()
     expect(after.players[0].cash).toBeCloseTo(5 - OFFICE_RECOMMEND_COST)
-    expect(after.players[0].relations.some((r) => r.kind === 'network')).toBe(true)
+    expect(after.players[0].relations.length).toBeGreaterThan(0)
   })
 
   it('adjusts own relation upward', () => {
     let g = baseWithOffice()
-    const mine: Relation = {
-      id: 'my-rel',
-      kind: 'romance',
-      name: '小夏',
-      score: 40,
-      status: 'dating',
-      locked: false,
-    }
+    const mine = rel({ id: 'my-rel', name: '小夏', affinity: 200 })
     g = {
       ...g,
       players: g.players.map((p, i) => (i === 0 ? { ...p, relations: [mine] } : p)),
     }
+    const expected = applyAffinityDelta(200, 10).affinity
     const after = reduce(g, {
       type: 'OFFICE_ADJUST',
       ownerId: g.players[0].id,
@@ -62,7 +54,7 @@ describe('private office', () => {
       direction: 'up',
     })
     expect(after.players[0].cash).toBeCloseTo(5 - OFFICE_UP_COST)
-    expect(after.players[0].relations[0].score).toBe(50)
+    expect(after.players[0].relations[0].affinity).toBe(expected)
     expect(after.pendingLocation).toBeNull()
   })
 
@@ -76,7 +68,6 @@ describe('private office', () => {
     })
     expect(after.players[0].cash).toBeCloseTo(cashBefore - OFFICE_POACH_COST)
     expect(after.pendingLocation).toBeNull()
-    // success or fail both valid; fee always paid
     const got = after.players[0].relations.some((r) => r.name === '老周')
     const kept = after.players[1].relations.some((r) => r.id === 'ai-rel-1')
     expect(got || kept).toBe(true)

@@ -8,9 +8,10 @@ import type { GameState, Relation, Shop } from '../src/game/types'
 
 function rel(partial: Partial<Relation> & Pick<Relation, 'id' | 'name'>): Relation {
   return makeRelation({
-    kind: 'network',
-    score: 50,
-    status: 'stable',
+
+    affinity: 250,
+    skills: [],
+    training: null,
     locked: false,
     ...partial,
   })
@@ -71,8 +72,8 @@ describe('shop staff & skills', () => {
   it('vacant buy binds chosen free relation as manager', () => {
     let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-    const r1 = rel({ id: 'r1', name: '阿强', score: 40 })
-    const r2 = rel({ id: 'r2', name: '晓雯', score: 90, kind: 'romance', status: 'dating' })
+    const r1 = rel({ id: 'r1', name: '阿强', affinity: 200 })
+    const r2 = rel({ id: 'r2', name: '晓雯', affinity: 450, status: 'dating' })
     g = withPlayer(g, { relations: [r1, r2] })
     g = reduce(g, { type: 'LOCATION_BUY_VACANT', relationId: 'r1' })
     const s = g.players[0].shops[0]
@@ -109,8 +110,8 @@ describe('shop staff & skills', () => {
   it('set manager and default sole staff is manager', () => {
     let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-    const r1 = rel({ id: 'r1', name: '阿强', score: 40 })
-    const r2 = rel({ id: 'r2', name: '小林', score: 90 })
+    const r1 = rel({ id: 'r1', name: '阿强', affinity: 200 })
+    const r2 = rel({ id: 'r2', name: '小林', affinity: 450 })
     g = withPlayer(
       g,
       {
@@ -154,8 +155,8 @@ describe('shop staff & skills', () => {
   })
 
   it('skill bonus increases shop CF vs bare staff', () => {
-    const baseRel = rel({ id: 'r1', name: '阿强', score: 80, skills: [] })
-    const skilled = rel({ id: 'r1', name: '阿强', score: 80, skills: ['sales', 'service'] })
+    const baseRel = rel({ id: 'r1', name: '阿强', affinity: 400, skills: [] })
+    const skilled = rel({ id: 'r1', name: '阿强', affinity: 400, skills: ['sales', 'service'] })
     const s = shop({
       id: 's1',
       name: '小店',
@@ -169,8 +170,8 @@ describe('shop staff & skills', () => {
   it('poach removes staff and reassigns manager', () => {
     let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-    const r1 = rel({ id: 'r1', name: '阿强', score: 40 })
-    const r2 = rel({ id: 'r2', name: '小林', score: 90 })
+    const r1 = rel({ id: 'r1', name: '阿强', affinity: 200 })
+    const r2 = rel({ id: 'r2', name: '小林', affinity: 450 })
     const shops = [shop({ id: 's1', name: 'A店', managerId: 'r1', staffIds: ['r1', 'r2'] })]
     g = {
       ...g,
@@ -197,7 +198,7 @@ describe('shop staff & skills', () => {
   it('poach last staff closes shop', () => {
     let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-    const r1 = rel({ id: 'r1', name: '阿强', score: 40 })
+    const r1 = rel({ id: 'r1', name: '阿强', affinity: 200 })
     const shops = [shop({ id: 's1', name: 'A店', managerId: 'r1', baseCashflow: 0.5 })]
     g = {
       ...g,

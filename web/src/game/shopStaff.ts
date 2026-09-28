@@ -33,7 +33,7 @@ export function isRelationBusyTraining(r: Relation): boolean {
 
 export function canAssignToShop(player: PlayerState, relationId: string): boolean {
   const r = player.relations.find((x) => x.id === relationId)
-  if (!r || r.status === 'broken') return false
+  if (!r) return false
   if (isRelationBusyTraining(r)) return false
   if (relationShopId(player, relationId)) return false
   return true
@@ -50,7 +50,7 @@ export function eligibleManagers(
 ): Relation[] {
   return player.relations
     .filter((r) => canAssignToShop(player, r.id) && meetsRequiredSkills(r, requiredSkills))
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.affinity - a.affinity)
 }
 
 export function buildShop(opts: {
@@ -136,7 +136,7 @@ export function removeStaffFromShops(
       managerId = staffIds
         .map((id) => relations.find((r) => r.id === id))
         .filter((r): r is Relation => Boolean(r))
-        .sort((a, b) => b.score - a.score)[0]?.id ?? staffIds[0]
+        .sort((a, b) => b.affinity - a.affinity)[0]?.id ?? staffIds[0]
       managerChanged.push(shop.name)
     }
     next.push({ ...shop, staffIds, managerId })
@@ -151,7 +151,6 @@ export function closeShopPayout(shop: Shop): number {
 export function canLearnSkill(rel: Relation, skillId: string): string | null {
   const def = skillById(skillId)
   if (!def) return '未知技能'
-  if (rel.status === 'broken') return '关系已破裂'
   if (isRelationBusyTraining(rel)) return '正在进修中'
   if (rel.skills.includes(skillId)) return '已掌握该技能'
   if (rel.skills.length >= MAX_SKILLS) return '技能位已满（最多 3 个）'

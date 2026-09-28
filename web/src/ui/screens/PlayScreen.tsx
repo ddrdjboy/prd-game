@@ -11,10 +11,11 @@ import {
   DATE_VENUES,
   dateBoostFor,
   dateableRelations,
-  relationKindLabel,
-  relationStatusLabel,
+  relationStageLabel,
+  venueUnlockedFor,
 } from '../../game/dating'
-import { canAffordChoice, choiceCashCost, getEvent } from '../../game/events'
+import { displayProgress, STAGE_LABEL } from '../../game/affinity'
+import { canAffordChoice, choiceCashCost, getEvent, resolveEventChoices } from '../../game/events'
 import { diffPlayerTaste, type TasteLine } from '../../game/eventTaste'
 import { calcFinance, shopBookValue, shopBreakdown } from '../../game/finance'
 import { upgradeCostFor, shopTypeById } from '../../game/shopCatalog'
@@ -49,7 +50,7 @@ import {
   type Leverage,
 } from '../../game/exchange'
 import { resolveSlotEvent } from '../../game/slotEvents'
-import type { AutoSensitivity, GameAction, GameState, PlayerState, RelationKind } from '../../game/types'
+import type { AutoSensitivity, GameAction, GameState, PlayerState } from '../../game/types'
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
 import { TopBar } from '../components/TopBar'
@@ -386,7 +387,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             disabled={!isHumanTurn || busy || human.actionPoints <= 0}
             onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
           >
-            <span className="btn-full">约会·交友</span>
+            <span className="btn-full">互动</span>
             <span className="btn-short">约会</span>
           </button>
           <button
@@ -452,7 +453,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       {state.pendingEvent && (() => {
         const ev = getEvent(state.pendingEvent!.eventId)
         const actorId = state.pendingEvent!.playerId
-        const cash = state.players.find((p) => p.id === actorId)?.cash ?? 0
+        const actor = state.players.find((p) => p.id === actorId)
+        const cash = actor?.cash ?? 0
+        const choices =
+          ev && actor
+            ? resolveEventChoices(ev, actor)
+            : (ev?.choices ?? [{ id: 'accept', label: '确认', effects: [] }])
         const resolveChoice = (choiceId: string) => {
           dispatchTaste(state.pendingEvent!.title, 'event', {
             type: 'RESOLVE_EVENT_CHOICE',
@@ -468,7 +474,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               <h3>{state.pendingEvent!.title}</h3>
               <p>{state.pendingEvent!.text}</p>
               <div className="modal-actions event-choices">
-                {(ev?.choices ?? [{ id: 'accept', label: '确认', effects: [] }]).map((ch) => {
+                {choices.map((ch) => {
                   const cost = choiceCashCost(ch.effects)
                   const broke = cost > 0 && !canAffordChoice(cash, ch.effects)
                   return (
@@ -540,7 +546,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             {!state.pendingVisitShop && state.pendingLocation.spaceKind === 'vacant' && (
               <>
                 <h3>空地待售</h3>
-                <p>花 {VACANT_COST} 万开店；没人脉可加 {VACANT_HIRE_EXTRA} 万雇临时店长。</p>
+                <p>花 {VACANT_COST} 万开店；没合适关系可加 {VACANT_HIRE_EXTRA} 万雇临时店长。</p>
                 {human.relations.filter((r) => canAssignToShop(human, r.id)).length === 0 && (
                   <p className="muted">
                     暂无空闲人选。可雇临时店长，或先结识/等人进修完成后再来。
@@ -563,7 +569,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       >
                         <strong>{r.name}</strong>
                         <span>
-                          好感 {r.score}
+                          好感 {r.affinity}
                           {r.skills.length
                             ? ` · ${r.skills.map(skillLabel).join('、')}`
                             : ''}
@@ -628,7 +634,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       >
                         <strong>推荐好友</strong>
                         <span>{OFFICE_RECOMMEND_COST} 万</span>
-                        <em>为自己结识新人脉或恋人</em>
+                        <em>为自己结识新朋友</em>
                       </button>
                       <button
                         className="shop-item"
@@ -666,24 +672,19 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 {officeUi.step === 'recommend' && (
                   <>
                     <h3>推荐好友</h3>
-                    <p className="muted">花费 {OFFICE_RECOMMEND_COST} 万，选想结识的类型。</p>
+                    <p className="muted">花费 {OFFICE_RECOMMEND_COST} 万，随机结识一位新朋友。</p>
                     <div className="modal-actions">
-                      {(['network', 'romance'] as RelationKind[]).map((kind) => (
-                        <button
-                          key={kind}
-                          className="primary"
-                          disabled={human.cash + 1e-9 < OFFICE_RECOMMEND_COST}
-                          onClick={() =>
-                            dispatchTaste(
-                              kind === 'network' ? '事务所推荐人脉' : '事务所推荐恋人',
-                              'location',
-                              { type: 'OFFICE_RECOMMEND', kind },
-                            )
-                          }
-                        >
-                          {kind === 'network' ? '人脉' : '恋人'}
-                        </button>
-                      ))}
+                      <button
+                        className="primary"
+                        disabled={human.cash + 1e-9 < OFFICE_RECOMMEND_COST}
+                        onClick={() =>
+                          dispatchTaste('事务所推荐好友', 'location', {
+                            type: 'OFFICE_RECOMMEND',
+                          })
+                        }
+                      >
+                        确认推荐
+                      </button>
                       <button onClick={() => setOfficeUi({ step: 'menu' })}>返回</button>
                     </div>
                   </>
@@ -708,7 +709,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           <strong>{rel.name}</strong>
                           <span>
                             {owner.id === human.id ? '自己' : owner.name} ·{' '}
-                            {relationKindLabel(rel.kind)} · 好感 {rel.score}
+                            {relationStageLabel(rel)} · 好感 {rel.affinity}
                           </span>
                         </button>
                       ))}
@@ -764,7 +765,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <div className="shop-list">
                       {state.players
                         .filter((p) => p.id !== human.id)
-                        .filter((p) => poachableTargets(human.id, [p]).length > 0 || p.relations.some((r) => r.status !== 'broken' && !r.locked))
+                        .filter((p) => poachableTargets(human.id, [p]).length > 0 || p.relations.some((r) => true && !r.locked))
                         .map((p) => {
                           const n = poachableTargets(human.id, state.players).filter(
                             (t) => t.owner.id === p.id,
@@ -815,8 +816,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           >
                             <strong>{rel.name}</strong>
                             <span>
-                              {relationKindLabel(rel.kind)} · 好感 {rel.score} · 成功率约{' '}
-                              {Math.round(poachSuccessChance(rel.score) * 100)}%
+                              {relationStageLabel(rel)} · 好感 {rel.affinity} · 成功率约{' '}
+                              {Math.round(poachSuccessChance(rel.affinity) * 100)}%
                             </span>
                           </button>
                         ))}
@@ -996,7 +997,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                             >
                               <strong>{r.name}</strong>
                               <span>
-                                好感 {r.score}
+                                好感 {r.affinity}
                                 {r.skills.length
                                   ? ` · ${r.skills.map(skillLabel).join('、')}`
                                   : ''}
@@ -1043,7 +1044,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                             >
                               <strong>{r.name}</strong>
                               <span>
-                                {shop?.managerId === r.id ? '店长' : '店员'} · 好感 {r.score}
+                                {shop?.managerId === r.id ? '店长' : '店员'} · 好感 {r.affinity}
                               </span>
                               <em>{staff.length <= 1 ? '将关店卖出' : '离店'}</em>
                             </button>
@@ -1087,7 +1088,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                               }
                             >
                               <strong>{r.name}</strong>
-                              <span>好感 {r.score}</span>
+                              <span>好感 {r.affinity}</span>
                               <em>{shop?.managerId === r.id ? '现任店长' : '任命'}</em>
                             </button>
                           ))}
@@ -1131,9 +1132,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <span>+{PARK_REST_CASH} 万</span>
                     <em>喘口气</em>
                   </button>
-                  {human.relations
-                    .filter((r) => r.status !== 'broken')
-                    .map((r) => (
+                  {human.relations.map((r) => (
                       <button
                         key={r.id}
                         className="shop-item"
@@ -1168,14 +1167,14 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <h3>好友与关系</h3>
                 <p className="muted">点选查看人物详情（只读）。</p>
                 {human.relations.length === 0 ? (
-                  <p className="muted">暂无关系。可通过事件结识或约会·交友推进。</p>
+                  <p className="muted">暂无关系。可通过事件结识或互动推进。</p>
                 ) : (
                   <div className="shop-list">
                     {[...human.relations]
                       .sort((a, b) => {
-                        if (a.status === 'broken' && b.status !== 'broken') return 1
-                        if (b.status === 'broken' && a.status !== 'broken') return -1
-                        return b.score - a.score
+                        if (a.affinity <= 0 && b) return 1
+                        if (b.affinity <= 0 && a) return -1
+                        return b.affinity - a.affinity
                       })
                       .map((r) => (
                         <button
@@ -1185,8 +1184,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         >
                           <strong>{r.name}</strong>
                           <span>
-                            {occupationLabel(human, r)} · {relationKindLabel(r.kind)} · 好感{' '}
-                            {r.score}
+                            {occupationLabel(human, r)} · {relationStageLabel(r)} · 好感{' '}
+                            {r.affinity}
                             {willBreakNextDecay(r) ? ' · 下回合可能破裂' : ''}
                           </span>
                           {willBreakNextDecay(r) ? (
@@ -1224,9 +1223,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <h3>{rel.name}</h3>
                     <ul className="shop-detail-list">
                       <li>职业：{occupationLabel(human, rel)}</li>
-                      <li>类型：{relationKindLabel(rel.kind)}</li>
-                      <li>状态：{relationStatusLabel(rel.status)}</li>
-                      <li>好感：{rel.score}</li>
+                      <li>类型：{relationStageLabel(rel)}</li>
+                      <li>状态：{relationStageLabel(rel)}</li>
+                      <li>好感：{rel.affinity}</li>
                       <li>锁定：{rel.locked ? '是（较难被挖走）' : '否'}</li>
                       <li>
                         技能：
@@ -1261,7 +1260,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     <div className="modal-actions">
                       <button
                         className="primary"
-                        disabled={Boolean(rel.training) || staffed.length > 0 || rel.status === 'broken'}
+                        disabled={Boolean(rel.training) || staffed.length > 0 || false}
                         onClick={() =>
                           setFriendPanel({ step: 'train', relationId: rel.id })
                         }
@@ -1406,7 +1405,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       <li>
                         店长：
                         {mgr
-                          ? `${mgr.name}（好感 ${mgr.score}）`
+                          ? `${mgr.name}（好感 ${mgr.affinity}）`
                           : '无（应已关店）'}
                       </li>
                       <li>员工：{staffNames || '无'}</li>
@@ -1437,8 +1436,8 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             <div className="modal-card panel location-card">
               {state.pendingDate!.step === 'pickPartner' && (
                 <>
-                  <h3>约会·交友：约谁？</h3>
-                  <p className="muted">可选恋人或人脉，再选见面方式。</p>
+                  <h3>互动：约谁？</h3>
+                  <p className="muted">选一位关系，再选已解锁的见面方式。</p>
                   <div className="shop-list">
                     {partners.map((r) => (
                       <button
@@ -1448,8 +1447,10 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       >
                         <strong>{r.name}</strong>
                         <span>
-                          {relationKindLabel(r.kind)} · {relationStatusLabel(r.status)} · 好感{' '}
-                          {r.score}
+                          {relationStageLabel(r)} ·{' '}
+                          {r.affinity <= 0
+                            ? r.affinity
+                            : `${displayProgress(r.affinity)}/100`}
                         </span>
                       </button>
                     ))}
@@ -1463,26 +1464,35 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <>
                   <h3>
                     和「{picked.name}」
-                    {picked.kind === 'romance' ? '约会' : '见面'}去哪儿？
+                    {'见面'}去哪儿？
                   </h3>
                   <p className="muted">确认后消耗 1 行动点与对应现金。</p>
                   <div className="shop-list">
                     {DATE_VENUES.map((v) => {
+                      const unlocked = venueUnlockedFor(v, picked)
                       const broke = dater.cash + 1e-9 < v.cost
-                      const boost = dateBoostFor(dater, v, picked)
+                      const boost = dateBoostFor(dater, v)
+                      const locked = !unlocked
                       return (
                         <button
                           key={v.id}
                           type="button"
-                          className={`shop-item${broke ? ' is-broke' : ''}`}
-                          aria-disabled={broke}
-                          title={broke ? '现金不足' : undefined}
+                          className={`shop-item${broke || locked ? ' is-broke' : ''}`}
+                          aria-disabled={broke || locked}
+                          title={
+                            locked
+                              ? `需达到·${STAGE_LABEL[v.minStage]}`
+                              : broke
+                                ? '现金不足'
+                                : undefined
+                          }
                           onClick={() => {
+                            if (locked) return
                             if (broke) {
                               flashCashHint(v.cost, dater.cash)
                               return
                             }
-                            dispatchTaste(`约会 · ${v.name}`, 'date', {
+                            dispatchTaste(`互动 · ${v.name}`, 'date', {
                               type: 'DATE_CONFIRM_VENUE',
                               venueId: v.id,
                             })
@@ -1490,8 +1500,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         >
                           <strong>{v.name}</strong>
                           <span>
-                            {v.cost} 万 · 好感 +{boost}
-                            {broke ? '（现金不足）' : ''}
+                            {locked
+                              ? `需达到·${STAGE_LABEL[v.minStage]}`
+                              : `${v.cost} 万 · 好感 +${boost}${broke ? '（现金不足）' : ''}`}
                           </span>
                           <em>{v.blurb}</em>
                         </button>
@@ -1537,29 +1548,29 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             )}
             {state.pendingDecision.type === 'marriage' && (
               <>
-                <h3>谈婚论嫁</h3>
-                <p>要结婚吗？会花 0.5 万，并让其他恋情降温。</p>
+                <h3>关系升温</h3>
+                <p>对方想和你更进一步。接受会提升好感。</p>
                 <div className="modal-actions">
                   <button
                     className="primary"
                     onClick={() =>
-                      dispatchTaste('结婚', 'decision', {
+                      dispatchTaste('更进一步', 'decision', {
                         type: 'CONFIRM_MARRIAGE',
                         accept: true,
                       })
                     }
                   >
-                    结婚
+                    接受
                   </button>
                   <button
                     onClick={() =>
-                      dispatchTaste('暂缓婚事', 'decision', {
+                      dispatchTaste('婉拒', 'decision', {
                         type: 'CONFIRM_MARRIAGE',
                         accept: false,
                       })
                     }
                   >
-                    再等等
+                    婉拒
                   </button>
                 </div>
               </>
@@ -1978,7 +1989,7 @@ function VisitPanel({
   const staff =
     shop?.staffIds
       .map((id) => owner?.relations.find((r) => r.id === id))
-      .filter((r): r is NonNullable<typeof r> => r != null && r.status !== 'broken') ?? []
+      .filter((r): r is NonNullable<typeof r> => r != null && true) ?? []
   const manager = shop ? owner?.relations.find((r) => r.id === shop.managerId) : undefined
   const service = v.staffId ? owner?.relations.find((r) => r.id === v.staffId) : undefined
 
@@ -2043,7 +2054,7 @@ function VisitPanel({
               >
                 <strong>{r.name}</strong>
                 <span>
-                  好感 {r.score}
+                  好感 {r.affinity}
                   {shop?.managerId === r.id ? ' · 店长' : ' · 店员'}
                 </span>
                 <em>小费 {v.tipFee} 万</em>
@@ -2109,7 +2120,7 @@ function VisitPanel({
                 <span>{VISIT_POACH_FEE} 万</span>
                 <em>
                   {service
-                    ? `约 ${Math.round(poachSuccessChance(service.score) * 100)}%+印象`
+                    ? `约 ${Math.round(poachSuccessChance(service.affinity) * 100)}%+印象`
                     : '发起挖角'}
                 </em>
               </button>
