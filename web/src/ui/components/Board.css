@@ -176,6 +176,19 @@
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
+.square-cell.clickable {
+  cursor: pointer;
+}
+
+.square-cell.clickable:hover {
+  border-color: rgba(226, 177, 74, 0.55);
+}
+
+.square-cell.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .track-investor .square-cell {
   background: #142028;
 }
