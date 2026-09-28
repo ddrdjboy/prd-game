@@ -227,8 +227,28 @@
 }
 
 .kind-owned-shop {
-  box-shadow: inset 0 0 0 1px rgba(226, 177, 74, 0.55);
   background: #2a2418;
+}
+
+/* 与棋子座位色一致：描边 + 淡底 */
+.kind-owned-shop.owned-seat-0 {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: rgba(226, 177, 74, 0.18);
+}
+
+.kind-owned-shop.owned-seat-1 {
+  box-shadow: inset 0 0 0 2px #5b8def;
+  background: rgba(91, 141, 239, 0.2);
+}
+
+.kind-owned-shop.owned-seat-2 {
+  box-shadow: inset 0 0 0 2px #3dbd8f;
+  background: rgba(61, 189, 143, 0.2);
+}
+
+.kind-owned-shop.owned-seat-3 {
+  box-shadow: inset 0 0 0 2px #c77dba;
+  background: rgba(199, 125, 186, 0.2);
 }
 
 .kind-manage {
@@ -263,12 +283,21 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
-.token.human {
+/* 座位色：0 人类金，其余 AI 互不相同 */
+.token.seat-0 {
   background: var(--accent);
 }
 
-.token.ai {
-  background: #7aa0ff;
+.token.seat-1 {
+  background: #5b8def;
+}
+
+.token.seat-2 {
+  background: #3dbd8f;
+}
+
+.token.seat-3 {
+  background: #c77dba;
 }
 
 .token.bounce {

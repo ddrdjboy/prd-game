@@ -85,18 +85,22 @@ function SquareRing({
           }
           const here = players.filter((p) => p.track === track && p.position === space.index)
           const isCorner = (row === 0 || row === n - 1) && (col === 0 || col === n - 1)
-          const owned = space.kind === 'vacant' && findShopAt(players, track, space.index)
+          const owned = space.kind === 'vacant' ? findShopAt(players, track, space.index) : null
+          const ownerSeat =
+            owned != null
+              ? Math.max(0, players.findIndex((x) => x.id === owned.ownerId))
+              : -1
           const label = spaceDisplayLabel(space, track, players)
           return (
             <div
               key={`${track}-${space.index}`}
               role={interactive ? 'button' : undefined}
               tabIndex={interactive ? 0 : undefined}
-              className={`square-cell kind-${space.kind}${owned ? ' kind-owned-shop' : ''}${
-                isCorner ? ' corner' : ''
-              }${here.some((p) => p.id === highlightPlayerId) ? ' active' : ''}${
-                interactive ? ' clickable' : ''
-              }`}
+              className={`square-cell kind-${space.kind}${
+                owned ? ` kind-owned-shop owned-seat-${ownerSeat}` : ''
+              }${isCorner ? ' corner' : ''}${
+                here.some((p) => p.id === highlightPlayerId) ? ' active' : ''
+              }${interactive ? ' clickable' : ''}`}
               style={{ gridRow: row + 1, gridColumn: col + 1 }}
               title={label}
               onClick={
@@ -115,15 +119,21 @@ function SquareRing({
             >
               <span className="cell-label">{label}</span>
               <div className="tokens">
-                {here.map((p) => (
-                  <i
-                    key={p.id}
-                    className={`token ${p.isHuman ? 'human' : 'ai'}${
-                      p.id === highlightPlayerId ? ' bounce' : ''
-                    }`}
-                    title={p.name}
-                  />
-                ))}
+                {here.map((p) => {
+                  const seat = Math.max(
+                    0,
+                    players.findIndex((x) => x.id === p.id),
+                  )
+                  return (
+                    <i
+                      key={p.id}
+                      className={`token seat-${seat}${
+                        p.id === highlightPlayerId ? ' bounce' : ''
+                      }`}
+                      title={p.name}
+                    />
+                  )
+                })}
               </div>
             </div>
           )
