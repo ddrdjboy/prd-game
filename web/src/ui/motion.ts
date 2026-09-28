@@ -46,19 +46,30 @@ export function useCountUp(target: number, durationMs = COUNT_UP_MS): number {
   return shown
 }
 
-/** `key` 需挂到元素上，连续同向变化时靠重新挂载重启动画 */
+/** 每个 FLASH_MS 窗口至多闪一次；`key` 需挂到元素上，靠重新挂载重启动画 */
 export function useValueFlash(value: number): { className: string; key: number } {
   const prev = useRef(value)
+  const timer = useRef<number | null>(null)
   const [flash, setFlash] = useState<{ tone: FlashTone; key: number }>({ tone: null, key: 0 })
 
   useEffect(() => {
     const tone = flashTone(prev.current, value)
     prev.current = value
-    if (!tone) return
+    if (!tone || timer.current !== null) return
     setFlash((f) => ({ tone, key: f.key + 1 }))
-    const id = window.setTimeout(() => setFlash((f) => ({ tone: null, key: f.key })), FLASH_MS)
-    return () => window.clearTimeout(id)
+    timer.current = window.setTimeout(() => {
+      timer.current = null
+      setFlash((f) => ({ tone: null, key: f.key }))
+    }, FLASH_MS)
   }, [value])
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+      timer.current = null
+    },
+    [],
+  )
 
   return { className: flash.tone ? `flash-${flash.tone}` : '', key: flash.key }
 }

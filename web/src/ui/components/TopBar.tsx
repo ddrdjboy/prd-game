@@ -59,7 +59,7 @@ export function TopBar({
             <span className="finance-chip-label">财务</span>
             <span className="finance-chip-stats">
               现金{' '}
-              <span key={cashFlash.key} className={cashFlash.className}>
+              <span key={cashFlash.key} className={cashFlash.className || undefined}>
                 {human.cash}
               </span>
               <span className="dot">·</span>
