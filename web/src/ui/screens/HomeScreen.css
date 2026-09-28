@@ -10,23 +10,56 @@
 }
 
 .home-hero h1 {
+  position: relative;
   font-size: clamp(2.8rem, 8vw, 4.5rem);
   line-height: 1.05;
-  color: var(--accent);
+  font-weight: 900;
+  letter-spacing: -0.02em;
   margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 43, 214, 0.35));
+}
+
+.home-hero h1::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 4.5rem;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--grad-brand);
+  box-shadow: var(--glow-md-primary);
+  animation: neon-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes neon-breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .eyebrow {
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent2);
+  color: var(--c-info);
   font-size: 0.8rem;
+  font-weight: 600;
+  text-shadow: var(--glow-sm-info);
 }
 
 .lede {
   font-size: 1.1rem;
   line-height: 1.55;
-  color: var(--muted);
+  color: var(--c-muted);
   margin-bottom: 1.25rem;
 }
 
@@ -40,22 +73,12 @@
 
 .name-field span {
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--c-muted);
 }
 
 .name-field input {
   padding: 0.55rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #0c1612;
-  color: var(--ink);
-  font: inherit;
   font-size: 1rem;
-}
-
-.name-field input:focus {
-  outline: 2px solid rgba(226, 177, 74, 0.45);
-  outline-offset: 1px;
 }
 
 .seat-row {
@@ -71,7 +94,11 @@
 }
 
 .hint code {
-  color: var(--accent);
+  color: var(--c-gold);
+  background: var(--c-surface-sunken);
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  padding: 0.05rem 0.35rem;
 }
 
 @media (max-width: 640px) {

@@ -2,6 +2,13 @@
   padding: 1rem 0 2rem;
 }
 
+.career-pick h2 {
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .career-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -12,26 +19,39 @@
 .career-card {
   text-align: left;
   padding: 1.25rem;
-  background: linear-gradient(160deg, #1d3b31, #152821);
-  border: 1px solid var(--line);
+  background:
+    linear-gradient(var(--c-surface-strong), var(--c-surface-strong)) padding-box,
+    var(--grad-edge) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
   min-height: 220px;
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
 }
 
 .career-card:hover {
-  border-color: var(--accent2);
+  border-color: var(--c-info);
+  box-shadow: var(--glow-md-info);
   transform: translateY(-2px);
+}
+
+.career-card h3 {
+  color: var(--c-ink);
 }
 
 .career-card ul {
   list-style: none;
   padding: 0;
   margin: 0.75rem 0 0;
-  color: var(--muted);
+  color: var(--c-muted);
   line-height: 1.7;
 }
 
 .career-card .trait {
-  color: var(--accent);
+  color: var(--c-gold);
+  text-shadow: var(--glow-sm-gold);
 }
 
 @media (max-width: 640px) {
