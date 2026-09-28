@@ -15,6 +15,8 @@ type Props = {
   lastReels?: [number, number, number] | null
   comboLabel?: string | null
   comboFlash?: boolean
+  onSpaceClick?: (track: Track, space: BoardSpace) => void
+  spaceClickEnabled?: boolean
 }
 
 function spaceDisplayLabel(
@@ -36,14 +38,19 @@ function SquareRing({
   players,
   highlightPlayerId,
   visible,
+  onSpaceClick,
+  spaceClickEnabled = false,
 }: {
   track: Track
   spaces: BoardSpace[]
   players: PlayerState[]
   highlightPlayerId?: string | null
   visible: boolean
+  onSpaceClick?: (track: Track, space: BoardSpace) => void
+  spaceClickEnabled?: boolean
 }) {
   const n = SPACES_PER_SIDE
+  const interactive = Boolean(visible && spaceClickEnabled && onSpaceClick)
   const cells: { space: BoardSpace | null; row: number; col: number }[] = []
   const byCoord = new Map<string, BoardSpace>()
   for (const space of spaces) {
@@ -78,28 +85,55 @@ function SquareRing({
           }
           const here = players.filter((p) => p.track === track && p.position === space.index)
           const isCorner = (row === 0 || row === n - 1) && (col === 0 || col === n - 1)
-          const owned = space.kind === 'vacant' && findShopAt(players, track, space.index)
+          const owned = space.kind === 'vacant' ? findShopAt(players, track, space.index) : null
+          const ownerSeat =
+            owned != null
+              ? Math.max(0, players.findIndex((x) => x.id === owned.ownerId))
+              : -1
           const label = spaceDisplayLabel(space, track, players)
           return (
             <div
               key={`${track}-${space.index}`}
-              className={`square-cell kind-${space.kind}${owned ? ' kind-owned-shop' : ''}${
-                isCorner ? ' corner' : ''
-              }${here.some((p) => p.id === highlightPlayerId) ? ' active' : ''}`}
+              role={interactive ? 'button' : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              className={`square-cell kind-${space.kind}${
+                owned ? ` kind-owned-shop owned-seat-${ownerSeat}` : ''
+              }${isCorner ? ' corner' : ''}${
+                here.some((p) => p.id === highlightPlayerId) ? ' active' : ''
+              }${interactive ? ' clickable' : ''}`}
               style={{ gridRow: row + 1, gridColumn: col + 1 }}
               title={label}
+              onClick={
+                interactive && onSpaceClick ? () => onSpaceClick(track, space) : undefined
+              }
+              onKeyDown={
+                interactive && onSpaceClick
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSpaceClick(track, space)
+                      }
+                    }
+                  : undefined
+              }
             >
               <span className="cell-label">{label}</span>
               <div className="tokens">
-                {here.map((p) => (
-                  <i
-                    key={p.id}
-                    className={`token ${p.isHuman ? 'human' : 'ai'}${
-                      p.id === highlightPlayerId ? ' bounce' : ''
-                    }`}
-                    title={p.name}
-                  />
-                ))}
+                {here.map((p) => {
+                  const seat = Math.max(
+                    0,
+                    players.findIndex((x) => x.id === p.id),
+                  )
+                  return (
+                    <i
+                      key={p.id}
+                      className={`token seat-${seat}${
+                        p.id === highlightPlayerId ? ' bounce' : ''
+                      }`}
+                      title={p.name}
+                    />
+                  )
+                })}
               </div>
             </div>
           )
@@ -117,6 +151,8 @@ export function Board({
   lastReels = null,
   comboLabel = null,
   comboFlash = false,
+  onSpaceClick,
+  spaceClickEnabled = false,
 }: Props) {
   const [viewTrack, setViewTrack] = useState<Track>('worker')
   const worker = buildTrack('worker')
@@ -164,6 +200,8 @@ export function Board({
             players={players}
             highlightPlayerId={highlightPlayerId}
             visible={active === 'worker'}
+            onSpaceClick={onSpaceClick}
+            spaceClickEnabled={spaceClickEnabled}
           />
           <SquareRing
             track="investor"
@@ -171,6 +209,8 @@ export function Board({
             players={players}
             highlightPlayerId={highlightPlayerId}
             visible={active === 'investor'}
+            onSpaceClick={onSpaceClick}
+            spaceClickEnabled={spaceClickEnabled}
           />
           <div className="slot-overlay">
             <SlotMachine
