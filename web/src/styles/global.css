@@ -56,8 +56,8 @@ button {
   font: inherit;
   cursor: pointer;
   color: var(--c-ink);
-  background: rgba(34, 228, 255, 0.06);
-  border: 1px solid rgba(34, 228, 255, 0.4);
+  background: var(--c-info-soft);
+  border: 1px solid var(--c-info-line);
   border-radius: var(--r-sm);
   padding: 0.55rem 1rem;
   transition:
@@ -65,11 +65,6 @@ button {
     box-shadow var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
-}
-
-button:where(:hover:not(:disabled)) {
-  border-color: var(--c-info);
-  box-shadow: var(--glow-sm-info);
 }
 
 button:where(:active:not(:disabled)) {
@@ -97,23 +92,34 @@ button.primary {
   box-shadow: var(--glow-sm-primary);
 }
 
-button.primary:where(:hover:not(:disabled)) {
-  border-color: transparent;
-  box-shadow: var(--glow-md-primary);
+button.primary:where(:disabled) {
+  box-shadow: none;
 }
 
 button.ghost {
   background: transparent;
 }
 
-.danger {
-  border-color: rgba(255, 77, 109, 0.55);
+button.danger {
+  border-color: var(--c-neg-line);
   color: var(--c-neg);
 }
 
-button.danger:where(:hover:not(:disabled)) {
-  border-color: var(--c-neg);
-  box-shadow: var(--glow-sm-neg);
+@media (hover: hover) {
+  button:where(:hover:not(:disabled)) {
+    border-color: var(--c-info);
+    box-shadow: var(--glow-sm-info);
+  }
+
+  button.primary:where(:hover:not(:disabled)) {
+    border-color: transparent;
+    box-shadow: var(--glow-md-primary);
+  }
+
+  button.danger:where(:hover:not(:disabled)) {
+    border-color: var(--c-neg);
+    box-shadow: var(--glow-sm-neg);
+  }
 }
 
 :where(input, select, textarea) {
@@ -214,9 +220,9 @@ h3 {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(4, 2, 12, 0.72);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background: var(--c-scrim);
+  -webkit-backdrop-filter: blur(var(--blur-scrim));
+  backdrop-filter: blur(var(--blur-scrim));
   display: grid;
   place-items: center;
   z-index: 20;
@@ -268,11 +274,11 @@ h3 {
 }
 
 .flash-up {
-  animation: flash-up 700ms var(--ease-out);
+  animation: flash-up var(--dur-flash) var(--ease-out);
 }
 
 .flash-down {
-  animation: flash-down 700ms var(--ease-out);
+  animation: flash-down var(--dur-flash) var(--ease-out);
 }
 
 @keyframes flash-up {

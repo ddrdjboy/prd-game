@@ -13,6 +13,10 @@
   --c-ink: #f1eeff;
   --c-muted: #9a93b8;
   --c-on-bright: #14041c;
+  --c-info-soft: rgba(34, 228, 255, 0.06);
+  --c-info-line: rgba(34, 228, 255, 0.4);
+  --c-neg-line: rgba(255, 77, 109, 0.55);
+  --c-scrim: rgba(4, 2, 12, 0.72);
 
   --c-primary: #ff2bd6;
   --c-primary-2: #8b5cf6;
@@ -32,7 +36,7 @@
   --scanline: rgba(255, 255, 255, 0.035);
   --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
-  --grad-primary: linear-gradient(135deg, var(--c-primary), var(--c-primary-2));
+  --grad-primary: linear-gradient(135deg, #d61aa8, #6d3fd8);
   --grad-brand: linear-gradient(90deg, var(--c-primary), var(--c-info));
   --grad-gold: linear-gradient(90deg, #ffe680, var(--c-gold));
   --grad-life: linear-gradient(90deg, #4b4470, var(--c-muted));
@@ -64,10 +68,12 @@
   --r-lg: 16px;
   --r-pill: 999px;
   --blur-glass: 14px;
+  --blur-scrim: 6px;
 
   --dur-fast: 120ms;
   --dur-base: 220ms;
   --dur-slow: 420ms;
+  --dur-flash: 700ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --font-body: system-ui, -apple-system, 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei',
