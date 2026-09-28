@@ -206,7 +206,7 @@
 }
 
 @media (hover: hover) {
-  .square-cell.clickable:hover {
+  .square-cell.clickable:not(.active):hover {
     border-color: color-mix(in srgb, var(--c-info) 60%, transparent);
   }
 }
@@ -276,6 +276,12 @@
     var(--glow-md-info);
   transform: scale(1.04);
   z-index: 2;
+}
+
+.square-cell.kind-owned-shop.active {
+  box-shadow:
+    inset 0 0 0 2px var(--cell-edge),
+    var(--glow-md-info);
 }
 
 .cell-label {
