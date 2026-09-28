@@ -52,6 +52,7 @@ import { resolveSlotEvent } from '../../game/slotEvents'
 import type { AutoSensitivity, GameAction, GameState, PlayerState, RelationKind } from '../../game/types'
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
+import { Portrait } from '../components/Portrait'
 import { TopBar } from '../components/TopBar'
 import { TUTORIAL_LINES, hasSeenTutorial, markTutorialSeen } from '../tutorial'
 import './PlayScreen.css'
@@ -104,6 +105,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const [momentBanner, setMomentBanner] = useState<string | null>(null)
   const [cashHint, setCashHint] = useState<string | null>(null)
   const cashHintTimer = useRef<number | null>(null)
+  const [meetReveal, setMeetReveal] = useState<{
+    name: string
+    portraitId?: string
+    kindLabel: string
+  } | null>(null)
+  const seenRelationIds = useRef<Set<string> | null>(null)
   const [eventTaste, setEventTaste] = useState<{
     title: string
     lines: TasteLine[]
@@ -135,6 +142,24 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       if (cashHintTimer.current != null) window.clearTimeout(cashHintTimer.current)
     }
   }, [])
+
+  // 人类结识新人时弹「遇见」立绘（存档加载不弹）
+  useEffect(() => {
+    const ids = human.relations.map((r) => r.id)
+    if (seenRelationIds.current == null) {
+      seenRelationIds.current = new Set(ids)
+      return
+    }
+    const newcomers = human.relations.filter((r) => !seenRelationIds.current!.has(r.id))
+    seenRelationIds.current = new Set(ids)
+    if (!newcomers.length) return
+    const r = newcomers[newcomers.length - 1]!
+    setMeetReveal({
+      name: r.name,
+      portraitId: r.portraitId,
+      kindLabel: relationKindLabel(r.kind),
+    })
+  }, [human.relations])
 
   const dispatchTaste = (
     title: string,
@@ -1160,6 +1185,22 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         </div>
       )}
 
+      {meetReveal && (
+        <div className="modal">
+          <div className="modal-card panel location-card meet-reveal">
+            <p className="muted">新的缘分</p>
+            <Portrait name={meetReveal.name} portraitId={meetReveal.portraitId} size="lg" />
+            <h3>遇见「{meetReveal.name}」</h3>
+            <p className="muted">{meetReveal.kindLabel}</p>
+            <div className="modal-actions">
+              <button className="primary" type="button" onClick={() => setMeetReveal(null)}>
+                很高兴认识你
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {friendPanel && (
         <div className="modal">
           <div className="modal-card panel location-card">
@@ -1180,14 +1221,19 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       .map((r) => (
                         <button
                           key={r.id}
-                          className="shop-item"
+                          className="shop-item shop-item-person"
                           onClick={() => setFriendPanel({ step: 'detail', relationId: r.id })}
                         >
-                          <strong>{r.name}</strong>
-                          <span>
-                            {occupationLabel(human, r)} · {relationKindLabel(r.kind)} · 好感{' '}
-                            {r.score}
-                            {willBreakNextDecay(r) ? ' · 下回合可能破裂' : ''}
+                          <span className="portrait-row">
+                            <Portrait name={r.name} portraitId={r.portraitId} size="sm" />
+                            <span className="portrait-meta">
+                              <strong>{r.name}</strong>
+                              <span>
+                                {occupationLabel(human, r)} · {relationKindLabel(r.kind)} · 好感{' '}
+                                {r.score}
+                                {willBreakNextDecay(r) ? ' · 下回合可能破裂' : ''}
+                              </span>
+                            </span>
                           </span>
                           {willBreakNextDecay(r) ? (
                             <em className="warn">预警</em>
@@ -1221,7 +1267,15 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 const staffed = human.shops.filter((s) => s.staffIds.includes(rel.id))
                 return (
                   <>
-                    <h3>{rel.name}</h3>
+                    <div className="friend-detail-hero">
+                      <Portrait name={rel.name} portraitId={rel.portraitId} size="lg" />
+                      <div>
+                        <h3>{rel.name}</h3>
+                        <p className="muted">
+                          {relationKindLabel(rel.kind)} · {relationStatusLabel(rel.status)}
+                        </p>
+                      </div>
+                    </div>
                     <ul className="shop-detail-list">
                       <li>职业：{occupationLabel(human, rel)}</li>
                       <li>类型：{relationKindLabel(rel.kind)}</li>
@@ -1443,13 +1497,18 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     {partners.map((r) => (
                       <button
                         key={r.id}
-                        className="shop-item"
+                        className="shop-item shop-item-person"
                         onClick={() => dispatch({ type: 'DATE_PICK_PARTNER', relationId: r.id })}
                       >
-                        <strong>{r.name}</strong>
-                        <span>
-                          {relationKindLabel(r.kind)} · {relationStatusLabel(r.status)} · 好感{' '}
-                          {r.score}
+                        <span className="portrait-row">
+                          <Portrait name={r.name} portraitId={r.portraitId} size="md" />
+                          <span className="portrait-meta">
+                            <strong>{r.name}</strong>
+                            <span>
+                              {relationKindLabel(r.kind)} · {relationStatusLabel(r.status)} · 好感{' '}
+                              {r.score}
+                            </span>
+                          </span>
                         </span>
                       </button>
                     ))}
@@ -1461,11 +1520,16 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               )}
               {state.pendingDate!.step === 'pickVenue' && picked && (
                 <>
-                  <h3>
-                    和「{picked.name}」
-                    {picked.kind === 'romance' ? '约会' : '见面'}去哪儿？
-                  </h3>
-                  <p className="muted">确认后消耗 1 行动点与对应现金。</p>
+                  <div className="friend-detail-hero">
+                    <Portrait name={picked.name} portraitId={picked.portraitId} size="md" />
+                    <div>
+                      <h3>
+                        和「{picked.name}」
+                        {picked.kind === 'romance' ? '约会' : '见面'}去哪儿？
+                      </h3>
+                      <p className="muted">确认后消耗 1 行动点与对应现金。</p>
+                    </div>
+                  </div>
                   <div className="shop-list">
                     {DATE_VENUES.map((v) => {
                       const broke = dater.cash + 1e-9 < v.cost

@@ -60,7 +60,7 @@ PRD/                          # 仓库根
 | `slotEvents.ts` | 拉霸三位 → 事件/组合奖 |
 | `events.ts` | 事件池与 choices 效果 |
 | `finance.ts` | 财报、晋级/财富自由判定 |
-| `dating.ts` / `office.ts` / `location.ts` / `relations.ts` / `ai.ts` | 约会、事务所、落点、关系衰减、AI 落点策 |
+| `dating.ts` / `office.ts` / `location.ts` / `relations.ts` / `portraits.ts` / `ai.ts` | 约会、事务所、落点、关系衰减、肖像目录、AI 落点策 |
 | `autoSeason.ts` | 自动推进与打断 |
 | `scoring.ts` / `careers.ts` / `rng.ts` / `relationsCatalog.ts` | 结算、职业、随机、名册 |
 

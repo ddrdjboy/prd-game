@@ -1,6 +1,16 @@
+import { relationKindLabel } from '../../game/dating'
 import { scorePlayer } from '../../game/scoring'
-import type { GameState } from '../../game/types'
+import type { GameState, Relation } from '../../game/types'
+import { Portrait } from '../components/Portrait'
 import './SettlementScreen.css'
+
+function highlightRelation(relations: Relation[]): Relation | null {
+  const alive = relations.filter((r) => r.status !== 'broken')
+  if (!alive.length) return null
+  const romance = alive.filter((r) => r.kind === 'romance')
+  const pool = romance.length ? romance : alive
+  return [...pool].sort((a, b) => b.score - a.score)[0] ?? null
+}
 
 type Props = {
   state: GameState
@@ -11,6 +21,7 @@ export function SettlementScreen({ state, onRestart }: Props) {
   const scores = state.players.map((p) => ({ player: p, score: scorePlayer(p) }))
   const you = scores[0]
   const bankrupt = state.settlementReason === 'bankrupt'
+  const youHighlight = highlightRelation(you.player.relations)
 
   const maxW = Math.max(1, ...scores.map((s) => Math.abs(s.score.netWorth)))
   const maxN = Math.max(1, ...scores.map((s) => s.score.networkScore))
@@ -43,6 +54,25 @@ export function SettlementScreen({ state, onRestart }: Props) {
           ? '现金流断裂。下次注意支出节奏，开店与约会都要留发薪余粮。'
           : you.score.comment}
       </p>
+
+      {youHighlight && (
+        <div className="settle-portrait">
+          <Portrait
+            name={youHighlight.name}
+            portraitId={youHighlight.portraitId}
+            size="lg"
+          />
+          <div>
+            <p className="settle-portrait-label">
+              {youHighlight.kind === 'romance' ? '最难忘的恋人' : '最靠谱的人脉'}
+            </p>
+            <h2>{youHighlight.name}</h2>
+            <p className="muted">
+              {relationKindLabel(youHighlight.kind)} · 好感 {youHighlight.score}
+            </p>
+          </div>
+        </div>
+      )}
 
       <svg className="radar" viewBox="0 0 200 200" aria-label="三维雷达">
         <polygon points="100,20 170,160 30,160" fill="none" stroke="rgba(242,239,230,0.2)" />

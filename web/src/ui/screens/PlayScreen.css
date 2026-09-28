@@ -306,6 +306,37 @@
   padding: 0.55rem 0.7rem;
 }
 
+.shop-item-person {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.shop-item-person .portrait-row {
+  width: 100%;
+}
+
+.shop-item-person .portrait-meta strong {
+  display: block;
+}
+
+.shop-item-person .portrait-meta span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.friend-detail-hero {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+.friend-detail-hero h3 {
+  margin: 0 0 0.2rem;
+}
+
 .shop-item em {
   grid-column: 1 / -1;
   font-style: normal;

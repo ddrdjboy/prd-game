@@ -67,6 +67,7 @@ import {
   exchangeTick,
 } from './exchangeReduce'
 import { NETWORK_NAMES, ROMANCE_NAMES, pickName } from './relationsCatalog'
+import { pickPortraitId, usedPortraitIds } from './portraits'
 import { decayPlayerRelations } from './relations'
 import { createRng } from './rng'
 import { skillById } from './skills'
@@ -279,6 +280,7 @@ export function applyEffects(
         const score = effect.score ?? 40
         const boost = player().trait === 'networkBoost' && effect.relationKind === 'network' ? 8 : 0
         const rBoost = player().trait === 'romanceBoost' && effect.relationKind === 'romance' ? 8 : 0
+        const portraitId = pickPortraitId(usedPortraitIds(s.players), rng)
         const rel = makeRelation({
           id: `rel-${s.logs.length}-${Math.floor(rng() * 1e6)}`,
           kind: effect.relationKind,
@@ -286,6 +288,7 @@ export function applyEffects(
           score: Math.min(100, score + boost + rBoost),
           status: effect.relationKind === 'network' ? 'new' : 'dating',
           locked: false,
+          portraitId,
         })
         s = updatePlayer(s, playerId, (p) => ({ ...p, relations: [...p.relations, rel] }))
         s = pushLog(
@@ -825,6 +828,7 @@ function locationBuyVacant(state: GameState, relationId: string): GameState {
     const used = usedNames(s)
     const name = pickName(names, used, () => rng.next())
     const opId = `hire-${Math.floor(rng.next() * 1e6)}`
+    const portraitId = pickPortraitId(usedPortraitIds(s.players), () => rng.next())
     const rel = makeRelation({
       id: opId,
       kind: 'network',
@@ -832,6 +836,7 @@ function locationBuyVacant(state: GameState, relationId: string): GameState {
       score: 32,
       status: 'new',
       locked: false,
+      portraitId,
     })
     const shop = buildShop({
       id: `lot-${loc.track}-${loc.spaceIndex}-${Math.floor(rng.next() * 1e6)}`,

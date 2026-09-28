@@ -66,6 +66,7 @@ function migrateRelation(r: LegacyRelation): Relation {
     ...r,
     skills: r.skills?.length ? r.skills : initialSkillsForName(r.name),
     training: r.training ?? null,
+    portraitId: r.portraitId,
   }
 }
 

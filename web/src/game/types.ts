@@ -73,6 +73,8 @@ export interface Relation {
   skills: string[]
   /** 进修中：剩余自己的回合数 */
   training: null | { skillId: string; turnsLeft: number; successChance: number }
+  /** 全局独占肖像；缺省则 UI 用 placeholder（玩家/AI 本轮不挂） */
+  portraitId?: string
 }
 
 export interface Shop {
