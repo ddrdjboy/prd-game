@@ -1,3 +1,4 @@
+import { characterByName, characterByPortraitId } from '../../game/portraits'
 import { relationStageLabel } from '../../game/dating'
 import { scorePlayer } from '../../game/scoring'
 import type { GameState, Relation } from '../../game/types'
@@ -20,6 +21,9 @@ export function SettlementScreen({ state, onRestart }: Props) {
   const you = scores[0]
   const bankrupt = state.settlementReason === 'bankrupt'
   const youHighlight = highlightRelation(you.player.relations)
+  const highlightChar = youHighlight
+    ? characterByPortraitId(youHighlight.portraitId) ?? characterByName(youHighlight.name)
+    : null
 
   const maxW = Math.max(1, ...scores.map((s) => Math.abs(s.score.netWorth)))
   const maxRel = Math.max(1, ...scores.map((s) => s.score.relationScore))
@@ -59,7 +63,9 @@ export function SettlementScreen({ state, onRestart }: Props) {
             size="lg"
           />
           <div>
-            <p className="settle-portrait-label">最难忘的关系</p>
+            <p className="settle-portrait-label">
+              {highlightChar?.title ? `最难忘的${highlightChar.title}` : '最难忘的关系'}
+            </p>
             <h2>{youHighlight.name}</h2>
             <p className="muted">
               {relationStageLabel(youHighlight)} · 好感 {youHighlight.affinity}

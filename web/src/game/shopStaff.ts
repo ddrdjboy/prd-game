@@ -1,3 +1,4 @@
+import { characterByName, characterByPortraitId } from './portraits'
 import { shopBookValue } from './finance'
 import { initialSkillsForName } from './relationsCatalog'
 import {
@@ -108,9 +109,17 @@ function round2(n: number): number {
 export function occupationLabel(player: PlayerState, rel: Relation): string {
   if (isRelationBusyTraining(rel)) return '进修中'
   const shop = player.shops.find((s) => s.staffIds.includes(rel.id))
-  if (!shop) return '自由人'
-  if (shop.managerId === rel.id) return `店长·${shop.name}`
-  return `店员·${shop.name}`
+  if (shop) {
+    if (shop.managerId === rel.id) return `店长·${shop.name}`
+    return `店员·${shop.name}`
+  }
+  const ch = characterByPortraitId(rel.portraitId) ?? characterByName(rel.name)
+  return ch?.title ?? '自由人'
+}
+
+/** 定妆角色简介；非目录角色返回 null */
+export function characterBlurb(rel: Relation): string | null {
+  return (characterByPortraitId(rel.portraitId) ?? characterByName(rel.name))?.blurb ?? null
 }
 
 export function removeStaffFromShops(

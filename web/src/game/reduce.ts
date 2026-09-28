@@ -75,7 +75,7 @@ import {
   exchangeTick,
 } from './exchangeReduce'
 import { RELATION_NAMES, pickName } from './relationsCatalog'
-import { pickPortraitId, usedPortraitIds } from './portraits'
+import { pickCharacter } from './portraits'
 import { applyAffinityDelta, rollInitialAffinity, stageFromAffinity, stageGte } from './affinity'
 import { decayPlayerRelations } from './relations'
 import { createRng } from './rng'
@@ -268,18 +268,18 @@ export function applyEffects(
         }))
         break
       case 'meet': {
-        const name = pickName(RELATION_NAMES, usedNames(s), rng)
+        const char = pickCharacter(s.players, rng)
+        const name = char?.name ?? pickName(RELATION_NAMES, usedNames(s), rng)
         let affinity = effect.affinity ?? rollInitialAffinity(rng)
         if (player().trait === 'relationBoost') {
           affinity = applyAffinityDelta(affinity, 8).affinity
         }
-        const portraitId = pickPortraitId(usedPortraitIds(s.players), rng)
         const rel = makeRelation({
           id: `rel-${s.logs.length}-${Math.floor(rng() * 1e6)}`,
           name,
           affinity,
           locked: false,
-          portraitId,
+          portraitId: char?.portraitId,
         })
         s = updatePlayer(s, playerId, (p) => ({ ...p, relations: [...p.relations, rel] }))
         s = pushLog(s, `${player().name} 结识了「${name}」。`)
@@ -796,15 +796,15 @@ function locationBuyVacant(state: GameState, relationId: string): GameState {
   if (hire) {
     const names = RELATION_NAMES
     const used = usedNames(s)
-    const name = pickName(names, used, () => rng.next())
+    const char = pickCharacter(s.players, () => rng.next())
+    const name = char?.name ?? pickName(names, used, () => rng.next())
     const opId = `hire-${Math.floor(rng.next() * 1e6)}`
-    const portraitId = pickPortraitId(usedPortraitIds(s.players), () => rng.next())
     const rel = makeRelation({
       id: opId,
       name,
       affinity: 40,
       locked: false,
-      portraitId,
+      portraitId: char?.portraitId,
     })
     const shop = buildShop({
       id: `lot-${loc.track}-${loc.spaceIndex}-${Math.floor(rng.next() * 1e6)}`,

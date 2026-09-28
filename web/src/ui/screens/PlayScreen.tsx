@@ -14,6 +14,7 @@ import {
   relationStageLabel,
   venueUnlockedFor,
 } from '../../game/dating'
+import { characterByName, characterByPortraitId } from '../../game/portraits'
 import { displayProgress, STAGE_LABEL } from '../../game/affinity'
 import { canAffordChoice, choiceCashCost, getEvent, resolveEventChoices } from '../../game/events'
 import { diffPlayerTaste, type TasteLine } from '../../game/eventTaste'
@@ -26,6 +27,7 @@ import { SKILLS, skillLabel, shopCapacity } from '../../game/skills'
 import {
   canAssignToShop,
   canLearnSkill,
+  characterBlurb,
   occupationLabel,
   shopHasCapacity,
 } from '../../game/shopStaff'
@@ -155,10 +157,11 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     seenRelationIds.current = new Set(ids)
     if (!newcomers.length) return
     const r = newcomers[newcomers.length - 1]!
+    const ch = characterByPortraitId(r.portraitId) ?? characterByName(r.name)
     setMeetReveal({
       name: r.name,
       portraitId: r.portraitId,
-      kindLabel: relationStageLabel(r),
+      kindLabel: ch ? `${ch.title} · ${relationStageLabel(r)}` : relationStageLabel(r),
     })
   }, [human.relations])
 
@@ -1264,19 +1267,24 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   )
                 }
                 const staffed = human.shops.filter((s) => s.staffIds.includes(rel.id))
+                const blurb = characterBlurb(rel)
+                const ch = characterByPortraitId(rel.portraitId) ?? characterByName(rel.name)
                 return (
                   <>
                     <div className="friend-detail-hero">
                       <Portrait name={rel.name} portraitId={rel.portraitId} size="lg" />
                       <div>
                         <h3>{rel.name}</h3>
-                        <p className="muted">{relationStageLabel(rel)}</p>
+                        <p className="muted">
+                          {ch?.title ? `${ch.title} · ` : ''}
+                          {relationStageLabel(rel)}
+                        </p>
                       </div>
                     </div>
                     <ul className="shop-detail-list">
+                      {blurb ? <li className="muted">{blurb}</li> : null}
                       <li>职业：{occupationLabel(human, rel)}</li>
-                      <li>类型：{relationStageLabel(rel)}</li>
-                      <li>状态：{relationStageLabel(rel)}</li>
+                      <li>阶段：{relationStageLabel(rel)}</li>
                       <li>好感：{rel.affinity}</li>
                       <li>锁定：{rel.locked ? '是（较难被挖走）' : '否'}</li>
                       <li>
