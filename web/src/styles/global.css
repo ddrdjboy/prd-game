@@ -1,19 +1,5 @@
 @import './tokens.css';
 
-/* 旧变量别名：Task 10 删除 */
-:root {
-  --bg0: var(--c-bg-0);
-  --bg1: var(--c-bg-1);
-  --ink: var(--c-ink);
-  --muted: var(--c-muted);
-  --accent: var(--c-gold);
-  --accent2: var(--c-pos);
-  --danger: var(--c-neg);
-  --panel: var(--c-surface);
-  --line: var(--c-line);
-  --font-display: var(--font-body);
-}
-
 * {
   box-sizing: border-box;
 }
