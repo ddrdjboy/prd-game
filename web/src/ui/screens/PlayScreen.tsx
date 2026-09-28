@@ -1072,7 +1072,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           {staff.map((r) => (
                             <button
                               key={r.id}
-                              className="shop-item"
+                              className={`shop-item${staff.length <= 1 ? ' danger' : ''}`}
                               onClick={() =>
                                 dispatchTaste(`「${r.name}」离店`, 'location', {
                                   type: 'SHOP_REMOVE_STAFF',
