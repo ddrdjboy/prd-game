@@ -348,6 +348,12 @@
   width: min(440px, 100%);
 }
 
+.space-detail-facts {
+  margin: 0.75rem 0 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
 .modal-actions {
   display: flex;
   gap: 0.5rem;

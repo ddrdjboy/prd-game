@@ -50,7 +50,8 @@ import {
   type Leverage,
 } from '../../game/exchange'
 import { resolveSlotEvent } from '../../game/slotEvents'
-import type { AutoSensitivity, GameAction, GameState, PlayerState } from '../../game/types'
+import { buildSpaceDetail } from '../../game/spaceInfo'
+import type { AutoSensitivity, GameAction, GameState, PlayerState, Track } from '../../game/types'
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
 import { Portrait } from '../components/Portrait'
@@ -97,6 +98,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
   const moving = Boolean(state.moveAnimation)
   const [shopPanel, setShopPanel] = useState<ShopPanel | null>(null)
   const [friendPanel, setFriendPanel] = useState<FriendPanel | null>(null)
+  const [spaceDetail, setSpaceDetail] = useState<{ track: Track; index: number } | null>(null)
   const [logOpen, setLogOpen] = useState(false)
   const [financeOpen, setFinanceOpen] = useState(false)
   const [officeUi, setOfficeUi] = useState<OfficeUi | null>(null)
@@ -177,7 +179,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     dispatch(action)
   }
 
-  const browseOpen = Boolean(shopPanel || friendPanel || logOpen || financeOpen)
+  const browseOpen = Boolean(shopPanel || friendPanel || logOpen || financeOpen || spaceDetail)
   const busy = Boolean(
     state.pendingEvent ||
       state.pendingDecision ||
@@ -188,6 +190,10 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       comboFlash ||
       eventTaste,
   )
+
+  useEffect(() => {
+    if (busy) setSpaceDetail(null)
+  }, [busy])
 
   useEffect(() => {
     if (state.pendingLocation?.spaceKind === 'office') setOfficeUi({ step: 'menu' })
@@ -347,7 +353,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         onAutoRun={onAutoRun}
         onCycleSensitivity={cycleSensitivity}
         onOpenFinance={() => setFinanceOpen(true)}
-        financeDisabled={busy || Boolean(shopPanel || friendPanel || logOpen)}
+        financeDisabled={busy || Boolean(shopPanel || friendPanel || logOpen || spaceDetail)}
       />
       <FinancePanel
         player={human}
@@ -390,12 +396,17 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           lastReels={state.lastReels}
           comboLabel={comboLabelLive}
           comboFlash={Boolean(comboFlash)}
+          spaceClickEnabled={!busy && !browseOpen}
+          onSpaceClick={(track, space) => {
+            if (busy || browseOpen) return
+            setSpaceDetail({ track, index: space.index })
+          }}
         />
         <div className="info-split panel">
           <button
             type="button"
             className="log-trigger"
-            disabled={busy || Boolean(shopPanel || friendPanel || financeOpen)}
+            disabled={busy || Boolean(shopPanel || friendPanel || financeOpen || spaceDetail)}
             onClick={() => setLogOpen(true)}
           >
             <span className="log-trigger-main">
@@ -1199,6 +1210,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
           </div>
         </div>
       )}
+
+      {spaceDetail && (() => {
+        const detail = buildSpaceDetail(state, spaceDetail.track, spaceDetail.index)
+        return (
+          <div className="modal" role="dialog" aria-modal="true" aria-label="格子详情" onClick={() => setSpaceDetail(null)}>
+            <div className="modal-card panel location-card" onClick={(e) => e.stopPropagation()}>
+              <h3>{detail.headline}</h3>
+              <p className="muted">仅查看</p>
+              <p>{detail.description}</p>
+              <div className="space-detail-facts">
+                <p className="muted">当前实况</p>
+                {detail.facts.map((f) => (
+                  <p key={f}>{f}</p>
+                ))}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="primary" onClick={() => setSpaceDetail(null)}>
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {friendPanel && (
         <div className="modal">
