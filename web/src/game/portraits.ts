@@ -1,7 +1,7 @@
 import type { PlayerState } from './types'
 
 export type CharacterDef = {
-  /** g01…g20，对应 /portraits/{id}.png */
+  /** g01…g20，对应 /portraits/{id}.jpg */
   portraitId: string
   /** CHARACTER_PROMPTS.md 中的英文 id */
   key: string
@@ -199,7 +199,7 @@ export function characterByName(name: string): CharacterDef | undefined {
 
 export function portraitUrl(id: string | undefined | null): string | null {
   if (!id || !CATALOG_SET.has(id)) return null
-  return `/portraits/${id}.png`
+  return `${import.meta.env.BASE_URL}portraits/${id}.jpg`
 }
 
 export function usedPortraitIds(players: PlayerState[]): Set<string> {

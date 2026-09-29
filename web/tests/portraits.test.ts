@@ -61,8 +61,8 @@ describe('portraits / characters', () => {
   })
 
   it('resolves url for catalog ids and null otherwise', () => {
-    expect(portraitUrl('g01')).toBe('/portraits/g01.png')
-    expect(portraitUrl('g20')).toBe('/portraits/g20.png')
+    expect(portraitUrl('g01')).toBe('/portraits/g01.jpg')
+    expect(portraitUrl('g20')).toBe('/portraits/g20.jpg')
     expect(portraitUrl('missing')).toBeNull()
     expect(portraitUrl(undefined)).toBeNull()
   })

@@ -57,7 +57,9 @@ import type { AutoSensitivity, GameAction, GameState, PlayerState, Track } from 
 import { Board } from '../components/Board'
 import { FinancePanel } from '../components/FinancePanel'
 import { Portrait } from '../components/Portrait'
+import { SceneBanner } from '../components/SceneBanner'
 import { TopBar } from '../components/TopBar'
+import { PLAY_ART, eventArt, spaceArt, venueArt } from '../art'
 import { TUTORIAL_LINES, hasSeenTutorial, markTutorialSeen } from '../tutorial'
 import './PlayScreen.css'
 
@@ -66,6 +68,8 @@ type Props = {
   dispatch: (a: GameAction) => void
   onAutoRun: () => void
 }
+
+type TasteScene = { art?: string; name: string; portraitId?: string }
 
 type ShopPanel =
   | { step: 'list' }
@@ -114,12 +118,14 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     name: string
     portraitId?: string
     kindLabel: string
+    blurb?: string
   } | null>(null)
   const seenRelationIds = useRef<Set<string> | null>(null)
   const [eventTaste, setEventTaste] = useState<{
     title: string
     lines: TasteLine[]
     note?: string
+    scene?: TasteScene
   } | null>(null)
   const seenLogId = useRef<string | null>(null)
   const tasteArmRef = useRef<{
@@ -127,6 +133,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     title: string
     waitFor: 'event' | 'location' | 'date' | 'decision'
     focusId: string
+    scene?: TasteScene
   } | null>(null)
   const recentLogs = [...state.logs].reverse().slice(0, 12)
   const latestLog = recentLogs[0]?.text
@@ -164,6 +171,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       name: r.name,
       portraitId: r.portraitId,
       kindLabel: ch ? `${ch.title} · ${relationStageLabel(r)}` : relationStageLabel(r),
+      blurb: ch?.blurb,
     })
   }, [human.relations])
 
@@ -172,12 +180,14 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     waitFor: 'event' | 'location' | 'date' | 'decision',
     action: GameAction,
     focusId: string = human.id,
+    scene?: TasteScene,
   ) => {
     tasteArmRef.current = {
       befores: state.players,
       title,
       waitFor,
       focusId,
+      scene,
     }
     dispatch(action)
   }
@@ -298,7 +308,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             ? '可晋级投资人圈'
             : undefined
 
-    setEventTaste({ title: arm.title, lines, note })
+    setEventTaste({ title: arm.title, lines, note, scene: arm.scene })
     const t = window.setTimeout(() => setEventTaste(null), EVENT_TASTE_MS)
     return () => window.clearTimeout(t)
     // 依赖 pending* 关闭瞬间；players 已在同一次 render 更新
@@ -350,6 +360,11 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
 
   return (
     <div className="play">
+      <div
+        className="screen-art play-art"
+        style={{ backgroundImage: `url(${PLAY_ART})` }}
+        aria-hidden="true"
+      />
       <TopBar
         state={state}
         onToggleAuto={() => dispatch({ type: 'SET_AUTO', enabled: !state.autoEnabled })}
@@ -504,6 +519,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         return (
           <div className="modal">
             <div className="modal-card panel">
+              <SceneBanner src={eventArt(state.pendingEvent!.kind)} />
               {state.pendingEvent!.slotHint && (
                 <p className="slot-event-hint muted">{state.pendingEvent!.slotHint}</p>
               )}
@@ -553,6 +569,23 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       {eventTaste && (
         <div className="modal event-taste-modal">
           <div className="modal-card panel event-taste-card">
+            {eventTaste.scene ? (
+              <div className="date-cg" aria-hidden="true">
+                <SceneBanner src={eventTaste.scene.art} className="date-cg-bg" />
+                <Portrait
+                  name={eventTaste.scene.name}
+                  portraitId={eventTaste.scene.portraitId}
+                  size="card"
+                  className="date-cg-portrait"
+                />
+                {(() => {
+                  const up = eventTaste.lines.find(
+                    (l) => l.tone === 'pos' && l.label.includes(eventTaste.scene!.name),
+                  )
+                  return up ? <span className="date-cg-float">{up.delta}</span> : null
+                })()}
+              </div>
+            ) : null}
             <p className="slot-event-hint muted">结果</p>
             <h3>{eventTaste.title}</h3>
             {eventTaste.lines.length === 0 ? (
@@ -575,6 +608,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       {state.pendingLocation && !state.pendingDecision && !eventTaste && (
         <div className="modal">
           <div className="modal-card panel location-card">
+            <SceneBanner src={spaceArt(state.pendingLocation.spaceKind)} />
             <p className="slot-event-hint">落点 · {state.pendingLocation.label}</p>
             {state.pendingVisitShop && (
               <VisitPanel state={state} human={human} dispatch={dispatch} />
@@ -1171,7 +1205,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   {human.relations.map((r) => (
                       <button
                         key={r.id}
-                        className="shop-item"
+                        className="shop-item shop-item-thumb"
                         onClick={() =>
                           dispatchTaste(`公园小坐 · ${r.name}`, 'location', {
                             type: 'LOCATION_PARK_CHAT',
@@ -1179,6 +1213,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           })
                         }
                       >
+                        <Portrait name={r.name} portraitId={r.portraitId} size="sm" />
                         <strong>与 {r.name} 小坐</strong>
                         <span>好感 +{PARK_CHAT_BOOST}</span>
                         <em>免费</em>
@@ -1199,9 +1234,20 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         <div className="modal">
           <div className="modal-card panel location-card meet-reveal">
             <p className="muted">新的缘分</p>
-            <Portrait name={meetReveal.name} portraitId={meetReveal.portraitId} size="lg" />
+            <Portrait
+              name={meetReveal.name}
+              portraitId={meetReveal.portraitId}
+              size="xl"
+              caption={
+                <>
+                  <strong>{meetReveal.name}</strong>
+                  <small>{meetReveal.kindLabel}</small>
+                </>
+              }
+            />
             <h3>遇见「{meetReveal.name}」</h3>
             <p className="muted">{meetReveal.kindLabel}</p>
+            {meetReveal.blurb ? <p className="meet-blurb">{meetReveal.blurb}</p> : null}
             <div className="modal-actions">
               <button className="primary" type="button" onClick={() => setMeetReveal(null)}>
                 很高兴认识你
@@ -1216,6 +1262,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         return (
           <div className="modal" role="dialog" aria-modal="true" aria-label="格子详情" onClick={() => setSpaceDetail(null)}>
             <div className="modal-card panel location-card" onClick={(e) => e.stopPropagation()}>
+              <SceneBanner src={spaceArt(detail.kind)} />
               <h3>{detail.headline}</h3>
               <p className="muted">仅查看</p>
               <p>{detail.description}</p>
@@ -1259,7 +1306,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           onClick={() => setFriendPanel({ step: 'detail', relationId: r.id })}
                         >
                           <span className="portrait-row">
-                            <Portrait name={r.name} portraitId={r.portraitId} size="sm" />
+                            <Portrait
+                              name={r.name}
+                              portraitId={r.portraitId}
+                              size="sm"
+                              estranged={r.affinity <= 0}
+                            />
                             <span className="portrait-meta">
                               <strong>{r.name}</strong>
                               <span>
@@ -1303,15 +1355,22 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 const ch = characterByPortraitId(rel.portraitId) ?? characterByName(rel.name)
                 return (
                   <>
-                    <div className="friend-detail-hero">
-                      <Portrait name={rel.name} portraitId={rel.portraitId} size="lg" />
-                      <div>
-                        <h3>{rel.name}</h3>
-                        <p className="muted">
-                          {ch?.title ? `${ch.title} · ` : ''}
-                          {relationStageLabel(rel)}
-                        </p>
-                      </div>
+                    <div className="friend-detail-hero is-xl">
+                      <Portrait
+                        name={rel.name}
+                        portraitId={rel.portraitId}
+                        size="xl"
+                        estranged={rel.affinity <= 0}
+                        caption={
+                          <>
+                            <strong>{rel.name}</strong>
+                            <small>
+                              {ch?.title ? `${ch.title} · ` : ''}
+                              {relationStageLabel(rel)}
+                            </small>
+                          </>
+                        }
+                      />
                     </div>
                     <ul className="shop-detail-list">
                       {blurb ? <li className="muted">{blurb}</li> : null}
@@ -1530,25 +1589,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <>
                   <h3>互动：约谁？</h3>
                   <p className="muted">选一位关系，再选已解锁的见面方式。</p>
-                  <div className="shop-list">
+                  <div className="shop-list date-partner-grid">
                     {partners.map((r) => (
                       <button
                         key={r.id}
-                        className="shop-item shop-item-person"
+                        className="shop-item date-partner-card"
                         onClick={() => dispatch({ type: 'DATE_PICK_PARTNER', relationId: r.id })}
                       >
-                        <span className="portrait-row">
-                          <Portrait name={r.name} portraitId={r.portraitId} size="md" />
-                          <span className="portrait-meta">
-                            <strong>{r.name}</strong>
-                            <span>
-                              {relationStageLabel(r)} ·{' '}
-                              {r.affinity <= 0
-                                ? r.affinity
-                                : `${displayProgress(r.affinity)}/100`}
-                            </span>
-                          </span>
-                        </span>
+                        <Portrait
+                          name={r.name}
+                          portraitId={r.portraitId}
+                          size="card"
+                          estranged={r.affinity <= 0}
+                          caption={
+                            <>
+                              <strong>{r.name}</strong>
+                              <span>
+                                {relationStageLabel(r)} ·{' '}
+                                {r.affinity <= 0
+                                  ? r.affinity
+                                  : `${displayProgress(r.affinity)}/100`}
+                              </span>
+                            </>
+                          }
+                        />
                       </button>
                     ))}
                   </div>
@@ -1576,7 +1640,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         <button
                           key={v.id}
                           type="button"
-                          className={`shop-item${broke || locked ? ' is-broke' : ''}`}
+                          className={`shop-item venue-item${broke || locked ? ' is-broke' : ''}${locked ? ' is-locked' : ''}`}
                           aria-disabled={broke || locked}
                           title={
                             locked
@@ -1591,12 +1655,25 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                               flashCashHint(v.cost, dater.cash)
                               return
                             }
-                            dispatchTaste(`互动 · ${v.name}`, 'date', {
-                              type: 'DATE_CONFIRM_VENUE',
-                              venueId: v.id,
-                            })
+                            dispatchTaste(
+                              `互动 · ${v.name}`,
+                              'date',
+                              { type: 'DATE_CONFIRM_VENUE', venueId: v.id },
+                              human.id,
+                              {
+                                art: venueArt(v.id),
+                                name: picked.name,
+                                portraitId: picked.portraitId,
+                              },
+                            )
                           }}
                         >
+                          <span className="venue-thumb" aria-hidden="true">
+                            {venueArt(v.id) ? (
+                              <img src={venueArt(v.id)} alt="" loading="lazy" decoding="async" draggable={false} />
+                            ) : null}
+                            {locked ? <span className="venue-lock">未解锁</span> : null}
+                          </span>
                           <strong>{v.name}</strong>
                           <span>
                             {locked

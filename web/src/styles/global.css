@@ -184,6 +184,23 @@ h3 {
   }
 }
 
+/* 固定铺底的整屏氛围图（首页 / 对局 / 结算） */
+.screen-art {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+}
+
+.screen-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--grad-screen-fade);
+}
+
 .panel {
   background:
     linear-gradient(var(--c-surface-strong), var(--c-surface-strong)) padding-box,
