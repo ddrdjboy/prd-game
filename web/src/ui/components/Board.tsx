@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { SPACES_PER_SIDE } from '../../game/config'
-import { buildTrack, squareCoord } from '../../game/board'
+import { buildTrack, fitRing, ringCoord, type RingFit, type RingShape } from '../../game/board'
 import { shopTypeById } from '../../game/shopCatalog'
 import { findShopAt, occupiedShopLabel } from '../../game/visitShop'
 import type { BoardSpace, PlayerState, SlotSpin, Track } from '../../game/types'
@@ -17,6 +17,37 @@ type Props = {
   comboFlash?: boolean
   onSpaceClick?: (track: Track, space: BoardSpace) => void
   spaceClickEnabled?: boolean
+  children?: ReactNode
+}
+
+const SQUARE: RingShape = { cols: SPACES_PER_SIDE, rows: SPACES_PER_SIDE }
+
+function useRingFit() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [fit, setFit] = useState<RingFit | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => {
+      const { width, height } = el.getBoundingClientRect()
+      if (width < 1 || height < 1) return
+      const next = fitRing(width, height)
+      setFit((prev) =>
+        prev &&
+        prev.cols === next.cols &&
+        Math.abs(prev.width - next.width) < 0.5 &&
+        Math.abs(prev.height - next.height) < 0.5
+          ? prev
+          : next,
+      )
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return { ref, fit }
 }
 
 function spaceDisplayLabel(
@@ -38,6 +69,7 @@ function SquareRing({
   players,
   highlightPlayerId,
   visible,
+  shape,
   onSpaceClick,
   spaceClickEnabled = false,
 }: {
@@ -46,28 +78,13 @@ function SquareRing({
   players: PlayerState[]
   highlightPlayerId?: string | null
   visible: boolean
+  shape: RingShape
   onSpaceClick?: (track: Track, space: BoardSpace) => void
   spaceClickEnabled?: boolean
 }) {
-  const n = SPACES_PER_SIDE
+  const { cols, rows } = shape
   const interactive = Boolean(visible && spaceClickEnabled && onSpaceClick)
-  const cells: { space: BoardSpace | null; row: number; col: number }[] = []
-  const byCoord = new Map<string, BoardSpace>()
-  for (const space of spaces) {
-    const { row, col } = squareCoord(space.index, n)
-    byCoord.set(`${row},${col}`, space)
-  }
-
-  for (let row = 0; row < n; row++) {
-    for (let col = 0; col < n; col++) {
-      const isEdge = row === 0 || row === n - 1 || col === 0 || col === n - 1
-      cells.push({
-        row,
-        col,
-        space: isEdge ? byCoord.get(`${row},${col}`) ?? null : null,
-      })
-    }
-  }
+  const cells = spaces.map((space) => ({ space, ...ringCoord(space.index, cols, rows) }))
 
   return (
     <div
@@ -77,14 +94,14 @@ function SquareRing({
       <div className="square-center-hole" />
       <div
         className="square-grid"
-        style={{ gridTemplateColumns: `repeat(${n}, 1fr)`, gridTemplateRows: `repeat(${n}, 1fr)` }}
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
       >
         {cells.map(({ space, row, col }) => {
-          if (!space) {
-            return <div key={`${row}-${col}`} className="square-empty" />
-          }
           const here = players.filter((p) => p.track === track && p.position === space.index)
-          const isCorner = (row === 0 || row === n - 1) && (col === 0 || col === n - 1)
+          const isCorner = (row === 0 || row === rows - 1) && (col === 0 || col === cols - 1)
           const owned = space.kind === 'vacant' ? findShopAt(players, track, space.index) : null
           const ownerSeat =
             owned != null
@@ -153,10 +170,13 @@ export function Board({
   comboFlash = false,
   onSpaceClick,
   spaceClickEnabled = false,
+  children,
 }: Props) {
   const [viewTrack, setViewTrack] = useState<Track>('worker')
   const worker = buildTrack('worker')
   const investor = buildTrack('investor')
+  const { ref: fillRef, fit } = useRingFit()
+  const shape: RingShape = fit ?? SQUARE
 
   useEffect(() => {
     if (forcedTrack) setViewTrack(forcedTrack)
@@ -166,40 +186,56 @@ export function Board({
   const locked = Boolean(forcedTrack)
   const spinning = Boolean(slotSpin) && !comboFlash
 
+  const stackStyle = {
+    '--ring-cols': shape.cols,
+    '--ring-rows': shape.rows,
+    ...(fit
+      ? {
+          '--cell-w': `${fit.cellW}px`,
+          width: `${fit.width}px`,
+          height: `${fit.height}px`,
+          aspectRatio: 'auto',
+        }
+      : null),
+  } as CSSProperties
+
+  const boardSwitch = (
+    <div className="board-switch" role="tablist" aria-label="切换地图">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === 'worker'}
+        className={active === 'worker' ? 'active' : ''}
+        disabled={locked && forcedTrack !== 'worker'}
+        onClick={() => setViewTrack('worker')}
+      >
+        打工人圈
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === 'investor'}
+        className={active === 'investor' ? 'active' : ''}
+        disabled={locked && forcedTrack !== 'investor'}
+        onClick={() => setViewTrack('investor')}
+      >
+        投资人圈
+      </button>
+      {locked && <span className="switch-hint">行走中 · 已锁定当前圈</span>}
+    </div>
+  )
+
   return (
     <div className="board panel">
-      <div className="board-switch" role="tablist" aria-label="切换地图">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'worker'}
-          className={active === 'worker' ? 'active' : ''}
-          disabled={locked && forcedTrack !== 'worker'}
-          onClick={() => setViewTrack('worker')}
-        >
-          打工人圈
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'investor'}
-          className={active === 'investor' ? 'active' : ''}
-          disabled={locked && forcedTrack !== 'investor'}
-          onClick={() => setViewTrack('investor')}
-        >
-          投资人圈
-        </button>
-        {locked && <span className="switch-hint">行走中 · 已锁定当前圈</span>}
-      </div>
-
-      <div className="board-fill">
-        <div className="board-stack">
+      <div className="board-fill" ref={fillRef}>
+        <div className="board-stack" style={stackStyle}>
           <SquareRing
             track="worker"
             spaces={worker}
             players={players}
             highlightPlayerId={highlightPlayerId}
             visible={active === 'worker'}
+            shape={shape}
             onSpaceClick={onSpaceClick}
             spaceClickEnabled={spaceClickEnabled}
           />
@@ -209,18 +245,23 @@ export function Board({
             players={players}
             highlightPlayerId={highlightPlayerId}
             visible={active === 'investor'}
+            shape={shape}
             onSpaceClick={onSpaceClick}
             spaceClickEnabled={spaceClickEnabled}
           />
-          <div className="slot-overlay">
-            <SlotMachine
-              spin={slotSpin}
-              lastReels={lastReels}
-              trackLabel={active === 'worker' ? '打工人圈' : '投资人圈'}
-              spinning={spinning}
-              comboLabel={comboLabel}
-              comboFlash={comboFlash}
-            />
+          <div className="ring-center">
+            {boardSwitch}
+            <div className="ring-center-slot">
+              <SlotMachine
+                spin={slotSpin}
+                lastReels={lastReels}
+                trackLabel={active === 'worker' ? '打工人圈' : '投资人圈'}
+                spinning={spinning}
+                comboLabel={comboLabel}
+                comboFlash={comboFlash}
+              />
+            </div>
+            {children && <div className="ring-center-controls">{children}</div>}
           </div>
         </div>
       </div>

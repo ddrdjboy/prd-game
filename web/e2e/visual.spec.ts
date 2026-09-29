@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const VIEWPORTS = [
-  { name: 'mobile', width: 390, height: 844 },
-  { name: 'desktop', width: 1280, height: 800 },
+  { name: 'mobile', width: 390, height: 844, portrait: true },
+  { name: 'mobile-small', width: 375, height: 667, portrait: true },
+  { name: 'desktop', width: 1280, height: 800, portrait: false },
 ] as const
 
 async function expectNoHorizontalScroll(page: Page) {
@@ -40,6 +41,10 @@ for (const vp of VIEWPORTS) {
     if (await know.isVisible().catch(() => false)) await know.click()
     await expect(page.locator('.play')).toBeVisible()
     await expectNoHorizontalScroll(page)
+    if (vp.portrait) {
+      const stack = await page.locator('.board-stack').boundingBox()
+      expect(stack?.height ?? 0).toBeGreaterThanOrEqual(vp.height * 0.7)
+    }
     await shot('play')
 
     const spin = page.getByRole('button', { name: /777 拉霸/ })

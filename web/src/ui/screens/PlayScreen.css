@@ -123,45 +123,11 @@
   width: 100%;
 }
 
-.play-grid .info-split {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-.info-split .log-trigger {
-  min-width: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.play .controls {
-  flex-shrink: 0;
-}
-
 .controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-}
-
-.controls-actions {
-  gap: 0.45rem;
-}
-
-.controls-spin {
-  padding: 0.45rem 0.65rem;
 }
 
 .control-spin {
@@ -195,10 +161,11 @@
   text-align: left;
   cursor: pointer;
   border: 1px solid var(--c-line);
-  background: var(--c-surface);
+  background: var(--c-surface-strong);
   color: inherit;
   font: inherit;
-  border-radius: inherit;
+  border-radius: var(--r-sm);
+  box-shadow: none;
 }
 
 .log-trigger:disabled {
@@ -392,7 +359,7 @@
   font-style: normal;
 }
 
-/* —— 竖屏：棋盘优先，操作条收成 HUD —— */
+/* —— 竖屏：棋盘占满剩余高度，操作收进环中心 —— */
 @media (max-width: 640px) {
   .play {
     gap: 0.16rem;
@@ -404,23 +371,10 @@
     min-height: 0;
   }
 
-  .play-grid .board {
-    flex: 1 1 auto;
-    min-height: min(calc(100vw - 0.85rem), calc(100dvh - 10.75rem));
-    padding: 0.3rem 0.35rem 0.35rem;
-  }
-
   .controls {
-    display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 0;
-    padding: 0.32rem 0.4rem 0.36rem;
-    border-radius: var(--r-sm);
-  }
-
-  .controls-spin {
-    padding: 0.28rem 0.4rem 0.36rem;
   }
 
   .control-secondary {
@@ -454,10 +408,6 @@
 
   .btn-short {
     display: inline;
-  }
-
-  .info-split {
-    border-radius: var(--r-sm);
   }
 
   .log-trigger {

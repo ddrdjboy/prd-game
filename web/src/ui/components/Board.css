@@ -9,13 +9,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
-  margin-bottom: 0.4rem;
   flex-shrink: 0;
 }
 
 .board-switch button {
-  min-width: 6.5rem;
+  min-width: 5.5rem;
   padding: 0.35rem 0.7rem;
   border-radius: var(--r-pill);
   background: var(--c-surface-sunken);
@@ -44,7 +44,9 @@
 }
 
 .switch-hint {
-  font-size: 0.75rem;
+  width: 100%;
+  text-align: center;
+  font-size: 0.7rem;
   color: var(--c-muted);
 }
 
@@ -74,52 +76,87 @@
   }
 }
 
+/* 中心空洞 = 去掉外圈一格后的内矩形；百分比 inset 分别相对容器高/宽 */
+.square-center-hole,
+.ring-center {
+  position: absolute;
+  inset: calc(100% / var(--ring-rows, 10) + 3px) calc(100% / var(--ring-cols, 10) + 3px);
+}
+
+.ring-center {
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ring-center-slot {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.ring-center-controls {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
   .board {
-    padding: 0.3rem 0.35rem 0.35rem;
+    padding: 0.25rem;
+  }
+
+  .ring-center {
+    gap: 0.3rem;
+    padding: 0.3rem 0.25rem;
   }
 
   .board-switch {
     gap: 0.2rem;
-    margin-bottom: 0.18rem;
   }
 
   .board-switch button {
     min-width: 0;
-    flex: 1 1 auto;
-    min-height: 26px;
-    height: 26px;
-    padding: 0 0.4rem;
-    font-size: 0.72rem;
+    flex: 1 1 0;
+    min-height: 28px;
+    height: 28px;
+    padding: 0 0.3rem;
+    font-size: 0.74rem;
   }
 
   .switch-hint {
-    width: 100%;
     font-size: 0.62rem;
-    margin-top: 0;
+  }
+
+  .ring-center-slot .slot-machine {
+    min-width: min(92%, 230px);
+    gap: 0.3rem;
+    padding: 0.4rem 0.45rem 0.45rem;
+  }
+
+  .ring-center-slot .slot-reel {
+    font-size: clamp(1.4rem, 8vw, 2rem);
+  }
+
+  .ring-center-slot .slot-caption {
+    font-size: 0.64rem;
   }
 
   .square-grid {
-    gap: 1px;
+    gap: 2px;
   }
 
   .square-cell {
-    padding: 0.1rem;
-    border-radius: 3px;
-  }
-
-  .cell-label {
-    font-size: clamp(0.48rem, 2.8vw, 0.68rem);
-  }
-
-  .token {
-    width: 7px;
-    height: 7px;
-  }
-
-  .square-center-hole,
-  .slot-overlay {
-    inset: 16%;
+    padding: 0.12rem 0.14rem;
+    border-radius: 4px;
   }
 }
 
@@ -160,26 +197,11 @@
 }
 
 .square-center-hole {
-  position: absolute;
-  inset: 14%;
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--c-surface-sunken) 65%, transparent);
   border: 1px dashed var(--c-line-strong);
   z-index: 0;
   pointer-events: none;
-}
-
-.slot-overlay {
-  position: absolute;
-  inset: 14%;
-  z-index: 5;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.square-empty {
-  visibility: hidden;
 }
 
 .square-cell {
@@ -285,8 +307,9 @@
 }
 
 .cell-label {
-  font-size: clamp(0.5rem, 1.1vw, 0.68rem);
+  font-size: clamp(0.55rem, calc(var(--cell-w, 40px) * 0.2), 0.82rem);
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .tokens {
@@ -298,8 +321,8 @@
 /* 座位色：0 人类金，其余 AI 互不相同 */
 .token {
   --token-color: var(--seat-0);
-  width: 9px;
-  height: 9px;
+  width: clamp(7px, calc(var(--cell-w, 40px) * 0.18), 11px);
+  height: clamp(7px, calc(var(--cell-w, 40px) * 0.18), 11px);
   border-radius: 50%;
   display: inline-block;
   background: var(--token-color);
