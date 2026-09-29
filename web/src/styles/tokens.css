@@ -46,6 +46,18 @@
     rgba(139, 92, 246, 0.16) 45%,
     rgba(34, 228, 255, 0.32)
   );
+  --grad-fade: linear-gradient(180deg, rgba(18, 13, 38, 0) 35%, var(--c-surface-strong) 100%);
+  --grad-screen-fade: linear-gradient(
+    180deg,
+    rgba(7, 6, 15, 0.25) 0%,
+    rgba(7, 6, 15, 0.55) 45%,
+    rgba(7, 6, 15, 0.94) 100%
+  );
+  --grad-caption: linear-gradient(180deg, rgba(7, 6, 15, 0) 45%, rgba(7, 6, 15, 0.92) 100%);
+
+  --banner-h: 96px;
+  --banner-h-short: 56px;
+  --play-art-opacity: 0.4;
 
   --glow-sm-primary: 0 0 8px rgba(255, 43, 214, 0.45);
   --glow-md-primary: 0 0 10px rgba(255, 43, 214, 0.55), 0 0 24px rgba(255, 43, 214, 0.25);

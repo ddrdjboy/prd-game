@@ -1,0 +1,29 @@
+.scene-banner {
+  position: relative;
+  height: var(--banner-h);
+  margin: -0.65rem -0.75rem 0.55rem;
+  overflow: hidden;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--c-surface-sunken);
+}
+
+.scene-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.scene-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--grad-fade);
+  pointer-events: none;
+}
+
+@media (max-height: 700px) {
+  .scene-banner {
+    height: var(--banner-h-short);
+  }
+}

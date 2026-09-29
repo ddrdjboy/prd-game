@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { CHARACTERS } from '../../game/portraits'
+import { HOME_ART } from '../art'
+import { Portrait } from '../components/Portrait'
 import { TUTORIAL_LINES } from '../tutorial'
 import './HomeScreen.css'
 
@@ -20,6 +23,11 @@ export function HomeScreen({ onStart, onContinue }: Props) {
 
   return (
     <div className="home">
+      <div
+        className="screen-art home-art"
+        style={{ backgroundImage: `url(${HOME_ART})` }}
+        aria-hidden="true"
+      />
       <div className="home-hero">
         <p className="eyebrow">网页人生财务竞技</p>
         <h1>45岁财富自由</h1>
@@ -52,6 +60,20 @@ export function HomeScreen({ onStart, onContinue }: Props) {
         <button className="ghost" type="button" onClick={() => setShowHelp(true)}>
           玩法说明
         </button>
+        <section className="home-cast" aria-label="登场角色">
+          <p className="home-cast-title">登场角色 · {CHARACTERS.length} 位</p>
+          <div className="home-cast-strip">
+            {CHARACTERS.map((c) => (
+              <figure key={c.portraitId} className="home-cast-item">
+                <Portrait name={c.name} portraitId={c.portraitId} size="md" />
+                <figcaption>
+                  <strong>{c.name}</strong>
+                  <span>{c.title}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
         <p className="hint muted">
           提示：地址加 <code>?fast=1</code> 可在 21 岁快速结算（调试）
         </p>

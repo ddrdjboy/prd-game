@@ -4,6 +4,7 @@ import { scorePlayer } from '../../game/scoring'
 import type { GameState, Relation } from '../../game/types'
 import { CountUpNumber } from '../components/CountUpNumber'
 import { Portrait } from '../components/Portrait'
+import { SETTLE_FREE_ART, SETTLE_GRIND_ART } from '../art'
 import './SettlementScreen.css'
 
 function highlightRelation(relations: Relation[]): Relation | null {
@@ -41,6 +42,13 @@ export function SettlementScreen({ state, onRestart }: Props) {
 
   return (
     <div className="settle">
+      <div
+        className="screen-art settle-art"
+        style={{
+          backgroundImage: `url(${!bankrupt && you.score.free ? SETTLE_FREE_ART : SETTLE_GRIND_ART})`,
+        }}
+        aria-hidden="true"
+      />
       <h1>{bankrupt ? '破产出局' : '45 岁结算'}</h1>
       {bankrupt ? (
         <p className="free-badge no">连续两次发薪后现金为负，人生提前结束。</p>
@@ -61,9 +69,9 @@ export function SettlementScreen({ state, onRestart }: Props) {
           <Portrait
             name={youHighlight.name}
             portraitId={youHighlight.portraitId}
-            size="lg"
+            size="xl"
           />
-          <div>
+          <div className="settle-portrait-text">
             <p className="settle-portrait-label">
               {highlightChar?.title ? `最难忘的${highlightChar.title}` : '最难忘的关系'}
             </p>

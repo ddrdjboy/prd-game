@@ -1,4 +1,5 @@
 import type { Career } from '../../game/types'
+import { careerArt } from '../art'
 import './CareerPickScreen.css'
 
 type Props = {
@@ -14,6 +15,11 @@ export function CareerPickScreen({ choices, onPick }: Props) {
       <div className="career-grid">
         {choices.map((c) => (
           <button key={c.id} className="career-card" onClick={() => onPick(c.id)}>
+            {careerArt(c.id) ? (
+              <span className="career-art" aria-hidden="true">
+                <img src={careerArt(c.id)} alt="" decoding="async" draggable={false} />
+              </span>
+            ) : null}
             <h3>{c.name}</h3>
             <ul>
               <li>月薪 {c.salary} 万</li>

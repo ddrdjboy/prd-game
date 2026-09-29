@@ -28,6 +28,7 @@
 | 私人事务所 | `…私人事务所设计.md` + `office.ts` |
 | 竖屏布局 | `…mobile-web适配设计.md` + `PlayScreen.css` 等 |
 | 格子点击详情 | `…地图格子详情设计.md` + `spaceInfo.ts` / `Board.tsx` |
+| 场景插画 / 立绘展示位 | `…场景插画与立绘展示设计.md` + `ui/art.ts` / `Portrait.tsx` |
 | AI / 文档约定本身 | `…2026-09-26-ai-harness-design.md` |
 
 玩法行为变了 → 更新对应子规格，并在主 PRD §0 / §19 记一笔。不要在 `AGENTS.md` 复制大段数值。

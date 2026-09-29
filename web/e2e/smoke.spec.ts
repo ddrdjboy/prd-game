@@ -32,7 +32,16 @@ async function clearBlockingModals(page: Page, maxRounds = 16) {
     await dismissTutorialIfAny(page)
 
     const modal = page.locator('.modal')
-    if (!(await modal.first().isVisible().catch(() => false))) return
+    if (!(await modal.first().isVisible().catch(() => false))) {
+      await page.waitForTimeout(600)
+      if (!(await modal.first().isVisible().catch(() => false))) return
+    }
+
+    const taste = page.locator('.event-taste-modal')
+    if (await taste.isVisible().catch(() => false)) {
+      await taste.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+      continue
+    }
 
     const eventSkip = page.getByRole('button', { name: /空手过关/ })
     if (await eventSkip.isVisible().catch(() => false)) {
@@ -41,13 +50,13 @@ async function clearBlockingModals(page: Page, maxRounds = 16) {
     }
 
     const decline = page
-      .locator('.event-choices button:not(:disabled)')
+      .locator('.event-choices button:not(:disabled):not([aria-disabled="true"])')
       .filter({ hasText: /拒绝|观望|忍住|冷处理|婉拒|不|先|维持|离开|推迟|象征|收缩|休息|改|躺平/ })
     if (await decline.first().isVisible().catch(() => false)) {
       await decline.first().click()
       continue
     }
-    const anyEvent = page.locator('.event-choices button:not(:disabled)')
+    const anyEvent = page.locator('.event-choices button:not(:disabled):not([aria-disabled="true"])')
     if (await anyEvent.first().isVisible().catch(() => false)) {
       await anyEvent.first().click()
       continue
