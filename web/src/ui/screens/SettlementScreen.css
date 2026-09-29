@@ -7,32 +7,44 @@
 
 .settle h1 {
   font-size: 2.8rem;
-  color: var(--accent);
+  font-weight: 900;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 43, 214, 0.35));
 }
 
 .free-badge {
   display: inline-block;
   padding: 0.35rem 0.9rem;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   margin: 0.5rem 0;
+  font-weight: 700;
+  border: 1px solid currentColor;
 }
 
 .free-badge.yes {
-  background: rgba(61, 189, 143, 0.2);
-  color: var(--accent2);
+  background: rgba(61, 255, 162, 0.12);
+  color: var(--c-pos);
+  box-shadow: var(--glow-sm-pos);
 }
 
 .free-badge.no {
-  background: rgba(224, 112, 96, 0.2);
-  color: var(--danger);
+  background: rgba(255, 77, 109, 0.12);
+  color: var(--c-neg);
+  box-shadow: var(--glow-sm-neg);
 }
 
 .grade {
   font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--c-gold);
+  text-shadow: var(--glow-sm-gold);
 }
 
 .comment {
-  color: var(--muted);
+  color: var(--c-muted);
   max-width: 420px;
   margin: 0.5rem auto 1rem;
 }
@@ -57,12 +69,12 @@
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--c-info);
 }
 
 .settle-portrait .muted {
   margin: 0;
-  color: var(--muted);
+  color: var(--c-muted);
   font-size: 0.9rem;
 }
 
@@ -70,6 +82,22 @@
   width: 220px;
   height: 220px;
   margin: 0 auto 1.25rem;
+}
+
+.radar-frame {
+  fill: none;
+  stroke: var(--c-line-strong);
+}
+
+.radar-shape {
+  fill: rgba(255, 210, 63, 0.3);
+  stroke: var(--c-gold);
+  filter: drop-shadow(0 0 6px var(--c-gold));
+}
+
+.radar-label {
+  fill: var(--c-muted);
+  font-size: 10px;
 }
 
 .score-grid {
@@ -80,10 +108,44 @@
   margin-bottom: 1.25rem;
 }
 
+.score-card {
+  --seat-color: var(--seat-0);
+  border-color: color-mix(in srgb, var(--seat-color) 55%, transparent);
+  border-top: 3px solid var(--seat-color);
+}
+
+.score-card.seat-1 {
+  --seat-color: var(--seat-1);
+}
+
+.score-card.seat-2 {
+  --seat-color: var(--seat-2);
+}
+
+.score-card.seat-3 {
+  --seat-color: var(--seat-3);
+}
+
+.score-card.is-you {
+  box-shadow:
+    var(--inset-hi),
+    var(--glow-md-gold);
+}
+
+.score-card h3 {
+  color: var(--seat-color);
+}
+
 .score-card p {
   margin: 0.25rem 0;
-  color: var(--muted);
+  color: var(--c-muted);
   font-size: 0.9rem;
+}
+
+.score-card .count-up {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--c-ink);
 }
 
 @media (max-width: 640px) {

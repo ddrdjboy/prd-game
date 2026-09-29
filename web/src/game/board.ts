@@ -62,19 +62,54 @@ export function buildTrack(track: Track): BoardSpace[] {
 }
 
 export function squareCoord(index: number, spacesPerSide = SPACES_PER_SIDE): { row: number; col: number } {
-  const n = spacesPerSide
-  const sideLen = n - 1
-  const side = Math.floor(index / sideLen) % 4
-  const offset = index % sideLen
-  switch (side) {
-    case 0:
-      return { row: 0, col: offset }
-    case 1:
-      return { row: offset, col: n - 1 }
-    case 2:
-      return { row: n - 1, col: n - 1 - offset }
-    default:
-      return { row: n - 1 - offset, col: 0 }
+  return ringCoord(index, spacesPerSide, spacesPerSide)
+}
+
+/** 顺时针把格序号映射到 cols×rows 长方形环的外圈，index 0 在左上角 */
+export function ringCoord(index: number, cols: number, rows: number): { row: number; col: number } {
+  const top = cols - 1
+  const right = rows - 1
+  const perimeter = 2 * (top + right)
+  const i = ((index % perimeter) + perimeter) % perimeter
+  if (i < top) return { row: 0, col: i }
+  if (i < top + right) return { row: i - top, col: cols - 1 }
+  if (i < 2 * top + right) return { row: rows - 1, col: cols - 1 - (i - top - right) }
+  return { row: rows - 1 - (i - 2 * top - right), col: 0 }
+}
+
+export type RingShape = { cols: number; rows: number }
+
+/** 周长与 SPACES_PER_SIDE 正方形环相同的候选形状；中心至少留 4 列 */
+export const RING_SHAPES: RingShape[] = Array.from({ length: SPACES_PER_SIDE - 5 }, (_, k) => {
+  const cols = SPACES_PER_SIDE - k
+  return { cols, rows: 2 * SPACES_PER_SIDE - cols }
+})
+
+const MAX_CELL_STRETCH = 1.3
+
+export type RingFit = RingShape & { width: number; height: number; cellW: number; cellH: number }
+
+/** 为容器选单格最接近正方形的环形状，并给出不超过容器、单格长宽比不超过 1.3 的尺寸 */
+export function fitRing(width: number, height: number, shapes: RingShape[] = RING_SHAPES): RingFit {
+  let best = shapes[0]
+  let bestScore = Infinity
+  for (const s of shapes) {
+    const score = Math.abs(Math.log(width / s.cols / (height / s.rows)))
+    if (score < bestScore - 1e-9) {
+      best = s
+      bestScore = score
+    }
+  }
+  let cellW = width / best.cols
+  let cellH = height / best.rows
+  if (cellW > cellH * MAX_CELL_STRETCH) cellW = cellH * MAX_CELL_STRETCH
+  if (cellH > cellW * MAX_CELL_STRETCH) cellH = cellW * MAX_CELL_STRETCH
+  return {
+    ...best,
+    cellW,
+    cellH,
+    width: cellW * best.cols,
+    height: cellH * best.rows,
   }
 }
 

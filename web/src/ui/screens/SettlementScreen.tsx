@@ -2,6 +2,7 @@ import { characterByName, characterByPortraitId } from '../../game/portraits'
 import { relationStageLabel } from '../../game/dating'
 import { scorePlayer } from '../../game/scoring'
 import type { GameState, Relation } from '../../game/types'
+import { CountUpNumber } from '../components/CountUpNumber'
 import { Portrait } from '../components/Portrait'
 import './SettlementScreen.css'
 
@@ -75,27 +76,31 @@ export function SettlementScreen({ state, onRestart }: Props) {
       )}
 
       <svg className="radar" viewBox="0 0 200 200" aria-label="财富与关系">
-        <polygon points="100,20 170,160 30,160" fill="none" stroke="rgba(242,239,230,0.2)" />
+        <polygon className="radar-frame" points="100,20 170,160 30,160" />
         <polygon
+          className="radar-shape"
           points={radar(you.score.netWorth, you.score.relationScore)}
-          fill="rgba(226,177,74,0.35)"
-          stroke="#e2b14a"
         />
-        <text x="100" y="14" textAnchor="middle" fill="#a8b5ad" fontSize="10">
+        <text className="radar-label" x="100" y="14" textAnchor="middle">
           资产
         </text>
-        <text x="100" y="178" textAnchor="middle" fill="#a8b5ad" fontSize="10">
+        <text className="radar-label" x="100" y="178" textAnchor="middle">
           关系
         </text>
       </svg>
 
       <div className="score-grid">
-        {scores.map(({ player, score }) => (
-          <div key={player.id} className="panel score-card">
+        {scores.map(({ player, score }, seat) => (
+          <div
+            key={player.id}
+            className={`panel score-card seat-${seat}${seat === 0 ? ' is-you' : ''}`}
+          >
             <h3>
               {player.name} · {score.grade}
             </h3>
-            <p>净资产 {score.netWorth}</p>
+            <p className="score-networth">
+              净资产 <CountUpNumber value={score.netWorth} />
+            </p>
             <p>关系 {score.relationScore}</p>
             <p>{score.free ? '已自由' : '未自由'}</p>
           </div>

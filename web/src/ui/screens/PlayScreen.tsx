@@ -404,8 +404,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             if (busy || browseOpen) return
             setSpaceDetail({ track, index: space.index })
           }}
-        />
-        <div className="info-split panel">
+        >
           <button
             type="button"
             className="log-trigger"
@@ -417,76 +416,74 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               {latestLog && <span className="log-preview muted">{latestLog}</span>}
             </span>
           </button>
-        </div>
-      </div>
-
-      <div className="controls panel controls-actions">
-        <div className="control-secondary">
-          <button
-            disabled={!isHumanTurn || busy || human.actionPoints <= 0}
-            onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
-          >
-            <span className="btn-full">互动</span>
-            <span className="btn-short">约会</span>
-          </button>
-          <button
-            disabled={busy || browseOpen}
-            onClick={() => setShopPanel({ step: 'list' })}
-          >
-            店铺
-          </button>
-          <button
-            disabled={busy || browseOpen}
-            onClick={() => setFriendPanel({ step: 'list' })}
-          >
-            好友
-          </button>
-        </div>
-      </div>
-
-      <div className="controls panel controls-spin">
-        {(() => {
-          const canRoll =
-            isHumanTurn && !busy && !state.autoEnabled && !state.turnRolled
-          const canEnd =
-            isHumanTurn && !busy && !state.autoEnabled && state.turnRolled
-          const pushAi = !isHumanTurn && !moving && !spinning && !busy
-
-          if (pushAi) {
-            return (
-              <button className="primary control-spin" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
-                推进 AI
-              </button>
-            )
-          }
-
-          if (canEnd) {
-            return (
+          <div className="controls controls-actions">
+            <div className="control-secondary">
               <button
-                className="primary control-spin"
-                onClick={() => dispatch({ type: 'END_TURN' })}
+                disabled={!isHumanTurn || busy || human.actionPoints <= 0}
+                onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
               >
-                结束回合
+                <span className="btn-full">互动</span>
+                <span className="btn-short">约会</span>
               </button>
-            )
-          }
+              <button
+                disabled={busy || browseOpen}
+                onClick={() => setShopPanel({ step: 'list' })}
+              >
+                店铺
+              </button>
+              <button
+                disabled={busy || browseOpen}
+                onClick={() => setFriendPanel({ step: 'list' })}
+              >
+                好友
+              </button>
+            </div>
+          </div>
+          <div className="controls controls-spin">
+            {(() => {
+              const canRoll =
+                isHumanTurn && !busy && !state.autoEnabled && !state.turnRolled
+              const canEnd =
+                isHumanTurn && !busy && !state.autoEnabled && state.turnRolled
+              const pushAi = !isHumanTurn && !moving && !spinning && !busy
 
-          return (
-            <button
-              className="primary control-spin"
-              disabled={!canRoll}
-              onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
-            >
-              {spinning
-                ? '拉霸中…'
-                : moving
-                  ? '行走中…'
-                  : busy
-                    ? '行动中…'
-                    : `777 拉霸${state.lastDice && !state.turnRolled ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
-            </button>
-          )
-        })()}
+              if (pushAi) {
+                return (
+                  <button className="primary control-spin" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
+                    推进 AI
+                  </button>
+                )
+              }
+
+              if (canEnd) {
+                return (
+                  <button
+                    className="primary control-spin"
+                    onClick={() => dispatch({ type: 'END_TURN' })}
+                  >
+                    结束回合
+                  </button>
+                )
+              }
+
+              return (
+                <button
+                  className="primary control-spin"
+                  disabled={!canRoll}
+                  onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
+                >
+                  {spinning
+                    ? '拉霸中…'
+                    : moving
+                      ? '行走中…'
+                      : busy
+                        ? '行动中…'
+                        : `777 拉霸${state.lastDice && !state.turnRolled ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
+                </button>
+              )
+            })()}
+          </div>
+        </Board>
       </div>
 
       {state.pendingEvent && (() => {
@@ -1072,7 +1069,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           {staff.map((r) => (
                             <button
                               key={r.id}
-                              className="shop-item"
+                              className={`shop-item${staff.length <= 1 ? ' danger' : ''}`}
                               onClick={() =>
                                 dispatchTaste(`「${r.name}」离店`, 'location', {
                                   type: 'SHOP_REMOVE_STAFF',

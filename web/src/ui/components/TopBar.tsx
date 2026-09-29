@@ -1,6 +1,7 @@
 import { END_AGE, SEASONS, START_AGE, getEndAge } from '../../game/config'
 import { calcFinance } from '../../game/finance'
 import type { AutoSensitivity, GameState } from '../../game/types'
+import { useValueFlash } from '../motion'
 import './TopBar.css'
 
 type Props = {
@@ -33,6 +34,8 @@ export function TopBar({
   const lifeSpan = Math.max(1, endAge - START_AGE)
   const lifePct = Math.min(100, Math.round(((state.age - START_AGE) / lifeSpan) * 100))
   const yearsLeft = Math.max(0, endAge - state.age)
+  const cashFlash = useValueFlash(human.cash)
+  const flowFlash = useValueFlash(fin.seasonalCashflow)
 
   return (
     <header className="topbar">
@@ -55,10 +58,16 @@ export function TopBar({
           >
             <span className="finance-chip-label">财务</span>
             <span className="finance-chip-stats">
-              现金 {human.cash}
+              现金{' '}
+              <span key={cashFlash.key} className={cashFlash.className || undefined}>
+                {human.cash}
+              </span>
               <span className="dot">·</span>
               季流{' '}
-              <span className={fin.seasonalCashflow >= 0 ? 'pos' : 'neg'}>
+              <span
+                key={flowFlash.key}
+                className={`${fin.seasonalCashflow >= 0 ? 'pos' : 'neg'} ${flowFlash.className}`.trim()}
+              >
                 {fin.seasonalCashflow}
               </span>
             </span>
