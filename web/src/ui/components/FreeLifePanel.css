@@ -1,0 +1,139 @@
+.free-life {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.free-life-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.free-life-head h2 {
+  margin: 0;
+}
+
+.free-life-quest {
+  margin: 0;
+  color: var(--neon-cyan, #7ef);
+  font-size: 0.9rem;
+}
+
+.free-life-places {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  overflow: auto;
+}
+
+.free-life-place {
+  position: relative;
+  min-height: 5.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background-size: cover;
+  background-position: center;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.free-life-place::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 6, 24, 0.15), rgba(10, 6, 24, 0.82));
+}
+
+.free-life-place span {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem;
+  color: #fff;
+}
+
+.free-life-place em {
+  font-style: normal;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.free-life-place:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.free-life-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.free-life-actions.col {
+  flex-direction: column;
+}
+
+.free-life-scene {
+  flex: 1;
+  border-radius: 14px;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: flex-end;
+  min-height: 18rem;
+  padding: 0.75rem;
+}
+
+.free-life-scene-card {
+  width: 100%;
+  max-height: 85%;
+  overflow: auto;
+}
+
+.free-life-team {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.free-life-team button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-align: left;
+}
+
+.free-life-team button.picked {
+  outline: 2px solid var(--neon-pink, #f6a);
+}
+
+.free-life-team em {
+  display: block;
+  font-style: normal;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.free-life-battle-log {
+  margin: 0;
+  padding-left: 1.1rem;
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.85rem;
+}
+
+@media (min-width: 720px) {
+  .free-life-places {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -35,15 +35,23 @@ async function safeClick(locator: ReturnType<Page['locator']>, notes: Note[], la
 async function clearModals(page: Page, notes: Note[], max = 24) {
   for (let i = 0; i < max; i++) {
     await dismissTutorial(page)
-    if (!(await page.locator('.modal').first().isVisible().catch(() => false))) return
+    if (!(await page.locator('.modal').first().isVisible().catch(() => false))) {
+      await page.waitForTimeout(600)
+      if (!(await page.locator('.modal').first().isVisible().catch(() => false))) return
+    }
 
     // 后渲染的弹层在上；用最后一个 modal 的标题，避免底层「空地」挡住「大额决策」
     const topModal = page.locator('.modal').last()
+    const taste = page.locator('.event-taste-modal')
+    if (await taste.isVisible().catch(() => false)) {
+      await taste.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+      continue
+    }
     const title = ((await topModal.locator('h3').first().textContent().catch(() => '')) ?? '').trim()
 
     const eventBtns = topModal.locator('.event-choices button')
     if ((await eventBtns.count()) > 0) {
-      const enabled = topModal.locator('.event-choices button:not(:disabled)')
+      const enabled = topModal.locator('.event-choices button:not(:disabled):not([aria-disabled="true"])')
       const skip = topModal.getByRole('button', { name: /空手过关/ })
       if ((await enabled.count()) === 0) {
         if (await skip.isVisible().catch(() => false)) {
@@ -76,19 +84,22 @@ async function clearModals(page: Page, notes: Note[], max = 24) {
     }
 
     if (title.includes('空地')) {
-      const buy = topModal.locator('.shop-item:not(:disabled)').first()
-      const leave = topModal.getByRole('button', { name: '走开' })
+      const buy = topModal.locator('.poster-appbar:not(:disabled), .shop-item:not(:disabled)').first()
+      const leave = topModal.getByRole('button', { name: '离开' })
       if (await buy.isVisible().catch(() => false)) {
         notes.push({ kind: 'ok', text: '空地开店' })
-        await buy.click({ force: true })
-      } else if (await safeClick(leave, notes, '空地走开')) {
+        await buy.click({ force: true, timeout: 3000 }).catch(() => {})
+      } else if (await safeClick(leave, notes, '空地离开')) {
         notes.push({ kind: 'ux', text: '空地买不起/无经营者' })
       }
       continue
     }
 
     if (title.includes('公园')) {
-      const chat = topModal.locator('.shop-item').filter({ hasText: '小坐' }).first()
+      const chat = topModal
+        .locator('.poster-appbar, .shop-item')
+        .filter({ hasText: '小坐' })
+        .first()
       if (await chat.isVisible().catch(() => false)) {
         notes.push({ kind: 'ok', text: '公园聊天' })
         await chat.click()
@@ -155,6 +166,7 @@ async function clearModals(page: Page, notes: Note[], max = 24) {
 
     const any = topModal.locator('button:not(:disabled)').last()
     if (!(await safeClick(any, notes, `通用关闭 ${title}`))) {
+      if (await taste.isVisible().catch(() => false)) continue
       notes.push({ kind: 'bug', text: `无法关闭弹层：${title || '(无标题)'}` })
       return
     }

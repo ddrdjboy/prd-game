@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { CHARACTERS } from '../../game/portraits'
+import { HOME_ART } from '../art'
+import { Portrait } from '../components/Portrait'
 import { TUTORIAL_LINES } from '../tutorial'
 import './HomeScreen.css'
 
@@ -20,11 +23,16 @@ export function HomeScreen({ onStart, onContinue }: Props) {
 
   return (
     <div className="home">
+      <div
+        className="screen-art home-art"
+        style={{ backgroundImage: `url(${HOME_ART})` }}
+        aria-hidden="true"
+      />
       <div className="home-hero">
         <p className="eyebrow">网页人生财务竞技</p>
         <h1>45岁财富自由</h1>
         <p className="lede">
-          18 岁入职，四季推进。打工人圈攒被动收入，晋级投资人圈；45 岁用资产与统一关系好感交卷。
+          18 岁入职，四季推进。打工人圈攒被动收入，摸到财富自由后进入地点生活与会所对战；45 岁看净资产与结识人数。
         </p>
         <label className="name-field">
           <span>你的名字</span>
@@ -52,8 +60,23 @@ export function HomeScreen({ onStart, onContinue }: Props) {
         <button className="ghost" type="button" onClick={() => setShowHelp(true)}>
           玩法说明
         </button>
+        <section className="home-cast" aria-label="登场角色">
+          <p className="home-cast-title">登场角色 · {CHARACTERS.length} 位</p>
+          <div className="home-cast-strip">
+            {CHARACTERS.map((c) => (
+              <figure key={c.portraitId} className="home-cast-item">
+                <Portrait name={c.name} portraitId={c.portraitId} size="md" />
+                <figcaption>
+                  <strong>{c.name}</strong>
+                  <span>{c.title}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
         <p className="hint muted">
-          提示：地址加 <code>?fast=1</code> 可在 21 岁快速结算（调试）
+          调试：<code>?fast=1</code> 21 岁结算；
+          <code>?freeLife=1</code> 直接进自由生活地点图
         </p>
       </div>
       {showHelp && (

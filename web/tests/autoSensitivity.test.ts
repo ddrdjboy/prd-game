@@ -9,7 +9,7 @@ describe('autoSensitivity', () => {
     g = reduce(g, { type: 'SET_SENSITIVITY', value: 'low' })
     g = {
       ...g,
-      pendingDecision: { type: 'promote', playerId: g.players[0].id },
+      pendingDecision: { type: 'enterFreeLife', playerId: g.players[0].id },
     }
     expect(isCriticalPending(g)).toBe(false)
     g = {
@@ -30,7 +30,7 @@ describe('autoSensitivity', () => {
     g = reduce(g, { type: 'SET_SENSITIVITY', value: 'high' })
     g = {
       ...g,
-      pendingDecision: { type: 'promote', playerId: g.players[0].id },
+      pendingDecision: { type: 'enterFreeLife', playerId: g.players[0].id },
     }
     expect(isCriticalPending(g)).toBe(true)
   })

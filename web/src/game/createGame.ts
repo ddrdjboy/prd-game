@@ -1,7 +1,7 @@
-import { ACTION_POINTS_PER_SEASON, START_AGE } from './config'
+import { ACTION_POINTS_PER_MONTH, ACTION_POINTS_PER_SEASON, START_AGE } from './config'
 import { pickCareers } from './careers'
 import { createRng } from './rng'
-import type { AiStyle, GameState, PlayerState } from './types'
+import type { AiStyle, GameState, PlayerState, Relation } from './types'
 
 const AI_STYLES: AiStyle[] = ['steady', 'aggressive', 'social']
 
@@ -46,6 +46,9 @@ export function createGame(opts: {
     seatCount,
     age: START_AGE,
     seasonIndex: 0,
+    monthIndex: 0,
+    lifeMode: 'worker',
+    questFlags: [],
     turnPlayerIndex: 0,
     players,
     careerChoices: pickCareers(3, () => rng.next()),
@@ -58,9 +61,13 @@ export function createGame(opts: {
     pendingCasino: null,
     pendingVisitShop: null,
     pendingExchange: null,
+    pendingFreeScene: null,
+    pendingClub: null,
     slotSpin: null,
     moveAnimation: null,
     autoEnabled: false,
+    autoChoiceMode: 'auto',
+    autoSpeed: 'fast',
     autoSensitivity: 'standard',
     seed,
     rngState: rng.state(),
@@ -69,5 +76,88 @@ export function createGame(opts: {
     lastReels: null,
     turnRolled: false,
     settlementReason: null,
+  }
+}
+
+/** 调试：`?freeLife=1` 直接进入自由生活（带 3 名好友、已自由财务） */
+export function createFreeLifeDebugGame(opts?: {
+  seed?: number
+  endAge?: number
+  humanName?: string
+}): GameState {
+  const base = createGame({
+    seatCount: 2,
+    seed: opts?.seed ?? 42,
+    endAge: opts?.endAge ?? 45,
+    humanName: opts?.humanName,
+  })
+  const career = pickCareers(1, () => 0.1)[0]
+  const relations: Relation[] = [
+    {
+      id: 'r1',
+      name: '蓝铃',
+      affinity: 280,
+      locked: false,
+      skills: ['service'],
+      training: null,
+      portraitId: 'g01',
+    },
+    {
+      id: 'r2',
+      name: '星澜',
+      affinity: 320,
+      locked: false,
+      skills: ['manage', 'creative'],
+      training: null,
+      portraitId: 'g02',
+    },
+    {
+      id: 'r3',
+      name: '茶纪',
+      affinity: 210,
+      locked: false,
+      skills: ['service', 'sales'],
+      training: null,
+      portraitId: 'g12',
+    },
+  ]
+  const players = base.players.map((p, i) => {
+    if (i !== 0) {
+      return {
+        ...p,
+        careerId: 'sales',
+        salary: 1,
+        fixedExpense: 0.4,
+        cash: 3,
+        actionPoints: 0,
+      }
+    }
+    return {
+      ...p,
+      careerId: career.id,
+      salary: career.salary,
+      fixedExpense: career.fixedExpense,
+      cash: 8,
+      trait: career.trait,
+      relations,
+      investments: [{ id: 'i1', name: '基金', cost: 3, cashflow: 1.2 }],
+      actionPoints: ACTION_POINTS_PER_MONTH,
+    }
+  })
+  return {
+    ...base,
+    phase: 'playing',
+    age: 30,
+    seasonIndex: 0,
+    monthIndex: 2,
+    lifeMode: 'free',
+    questFlags: [],
+    careerChoices: [],
+    turnRolled: true,
+    turnPlayerIndex: 0,
+    players,
+    pendingFreeScene: null,
+    pendingClub: null,
+    logs: [{ id: 'log0', text: '调试档：直接进入自由生活（?freeLife=1）。' }],
   }
 }

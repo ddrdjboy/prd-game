@@ -2,6 +2,7 @@ import { calcFinance, shopBreakdown } from '../../game/finance'
 import { CAREERS } from '../../game/careers'
 import { shopTypeById } from '../../game/shopCatalog'
 import type { PlayerState } from '../../game/types'
+import { MoneyAmount } from './MoneyAmount'
 import './FinancePanel.css'
 
 type Props = {
@@ -22,38 +23,52 @@ export function FinancePanel({ player, open, onOpenChange }: Props) {
       <div className="modal-card panel finance-modal-card">
         <h3>财务报表 · {player.name}</h3>
         <p className="muted">
-          {player.track === 'worker' ? '打工人圈' : '投资人圈'}
+          {player.track === 'worker' ? '打工人' : '投资人（旧档）'}
           {careerName ? ` · ${careerName}` : ''}
         </p>
         <div className="finance-body">
           <dl>
             <div>
               <dt>现金</dt>
-              <dd>{player.cash} 万</dd>
+              <dd>
+                <MoneyAmount value={player.cash} />
+              </dd>
             </div>
             <div>
               <dt>工资</dt>
-              <dd>{f.salary}</dd>
+              <dd>
+                <MoneyAmount value={f.salary} flow />
+              </dd>
             </div>
             <div>
               <dt>被动收入</dt>
-              <dd>{f.passiveIncome}</dd>
+              <dd>
+                <MoneyAmount value={f.passiveIncome} flow />
+              </dd>
             </div>
             <div>
               <dt>总支出</dt>
-              <dd>{f.totalExpense}</dd>
+              <dd>
+                <MoneyAmount value={f.totalExpense} flow />
+              </dd>
             </div>
             <div>
               <dt>季现金流</dt>
-              <dd className={f.seasonalCashflow >= 0 ? 'pos' : 'neg'}>{f.seasonalCashflow}</dd>
+              <dd className={f.seasonalCashflow >= 0 ? 'pos' : 'neg'}>
+                <MoneyAmount value={f.seasonalCashflow} flow signed />
+              </dd>
             </div>
             <div>
               <dt>净资产</dt>
-              <dd>{f.netWorth}</dd>
+              <dd>
+                <MoneyAmount value={f.netWorth} />
+              </dd>
             </div>
             <div>
               <dt>负债</dt>
-              <dd>{player.liabilities}</dd>
+              <dd>
+                <MoneyAmount value={player.liabilities} />
+              </dd>
             </div>
           </dl>
           <div>
@@ -65,6 +80,7 @@ export function FinancePanel({ player, open, onOpenChange }: Props) {
               {player.relations.map((r) => (
                   <li key={r.id}>
                     关系·{r.name} {r.affinity}
+                    <span className="money-unit">好感</span>
                     {r.locked ? ' 🔒' : ''}
                   </li>
                 ))}
@@ -78,15 +94,17 @@ export function FinancePanel({ player, open, onOpenChange }: Props) {
                 const label = shopTypeById(s.typeId)?.label ?? s.typeId
                 return (
                   <li key={s.id}>
-                    店·{s.name}（{label} Lv{s.level}）营收 {bd.gross.toFixed(2)} − 成本{' '}
-                    {bd.cost.toFixed(2)} ={' '}
-                    <span className={bd.net >= 0 ? 'pos' : 'neg'}>{bd.net.toFixed(2)}</span>
+                    店·{s.name}（{label} Lv{s.level}）营收 <MoneyAmount value={bd.gross} flow /> − 成本{' '}
+                    <MoneyAmount value={bd.cost} flow /> ={' '}
+                    <span className={bd.net >= 0 ? 'pos' : 'neg'}>
+                      <MoneyAmount value={bd.net} flow signed />
+                    </span>
                   </li>
                 )
               })}
               {player.investments.map((i) => (
                 <li key={i.id}>
-                  投·{i.name} (+{i.cashflow})
+                  投·{i.name}（<MoneyAmount value={i.cashflow} flow signed />）
                 </li>
               ))}
               {!player.shops.length && !player.investments.length && (

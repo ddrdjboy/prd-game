@@ -46,6 +46,8 @@ describe('persist migrate', () => {
     } as unknown as GameState
 
     const s = migrateState(raw)
+    expect(s.autoChoiceMode).toBe('auto')
+    expect(s.autoSpeed).toBe('fast')
     expect(s.turnRolled).toBe(false)
     expect(s.players[0].shops[0].staffIds).toEqual(['r1'])
     expect(s.players[0].shops[0].managerId).toBe('r1')

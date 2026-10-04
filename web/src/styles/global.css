@@ -184,6 +184,23 @@ h3 {
   }
 }
 
+/* 固定铺底的整屏氛围图（首页 / 对局 / 结算） */
+.screen-art {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+}
+
+.screen-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--grad-screen-fade);
+}
+
 .panel {
   background:
     linear-gradient(var(--c-surface-strong), var(--c-surface-strong)) padding-box,
@@ -198,6 +215,18 @@ h3 {
   color: var(--c-muted);
 }
 
+.money-unit {
+  margin-left: 0.15em;
+  font-weight: 600;
+  font-size: 0.78em;
+  color: var(--c-muted);
+}
+
+.pos > .money-unit,
+.neg > .money-unit {
+  color: inherit;
+}
+
 .warn {
   color: var(--c-neg);
   font-style: normal;
@@ -209,13 +238,21 @@ h3 {
   background: var(--c-scrim);
   -webkit-backdrop-filter: blur(var(--blur-scrim));
   backdrop-filter: blur(var(--blur-scrim));
-  display: grid;
-  place-items: center;
+  /* flex + margin:auto：矮时居中，高过视口时可滚且顶不被裁切 */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
   z-index: 20;
-  padding: 1rem;
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding: 0.55rem;
+  padding-bottom: max(0.55rem, env(safe-area-inset-bottom));
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.modal > * {
+  margin-block: auto;
+  margin-inline: auto;
+  max-width: 100%;
 }
 
 .modal-card {

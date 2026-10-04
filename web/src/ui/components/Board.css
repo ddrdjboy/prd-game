@@ -308,19 +308,41 @@
 }
 
 .square-cell.active {
-  border-color: var(--c-info);
-  background: color-mix(in srgb, var(--c-info) 14%, var(--cell-base));
+  --hl: var(--c-info);
+  --hl-glow: var(--glow-md-info);
+  border-color: var(--hl);
+  background: color-mix(in srgb, var(--hl) 14%, var(--cell-base));
   box-shadow:
-    inset 0 0 0 1px var(--c-info),
-    var(--glow-md-info);
+    inset 0 0 0 1px var(--hl),
+    var(--hl-glow);
   transform: scale(1.04);
   z-index: 2;
+}
+
+.square-cell.active.active-seat-0 {
+  --hl: var(--seat-0);
+  --hl-glow: var(--glow-md-gold);
+}
+
+.square-cell.active.active-seat-1 {
+  --hl: var(--seat-1);
+  --hl-glow: var(--glow-md-info);
+}
+
+.square-cell.active.active-seat-2 {
+  --hl: var(--seat-2);
+  --hl-glow: var(--glow-md-pos);
+}
+
+.square-cell.active.active-seat-3 {
+  --hl: var(--seat-3);
+  --hl-glow: var(--glow-md-primary);
 }
 
 .square-cell.kind-owned-shop.active {
   box-shadow:
     inset 0 0 0 2px var(--cell-edge),
-    var(--glow-md-info);
+    var(--hl-glow);
 }
 
 .cell-label {

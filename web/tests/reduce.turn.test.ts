@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { applyAffinityDelta } from '../src/game/affinity'
 import { createGame } from '../src/game/createGame'
-import { reduce } from '../src/game/reduce'
+import { autoStep, reduce } from '../src/game/reduce'
 import type { GameState } from '../src/game/types'
 
 function clearPendings(g: GameState): GameState {
@@ -13,7 +13,7 @@ function clearPendings(g: GameState): GameState {
   ) {
     if (s.pendingEvent) s = reduce(s, { type: 'RESOLVE_EVENT_CHOICE', choiceId: 'decline' })
     else if (s.pendingDate) s = reduce(s, { type: 'DATE_CANCEL' })
-    else if (s.pendingDecision?.type === 'promote') s = reduce(s, { type: 'SKIP_PROMOTE' })
+    else if (s.pendingDecision?.type === 'enterFreeLife') s = reduce(s, { type: 'SKIP_FREE_LIFE' })
     else if (s.pendingDecision?.type === 'marriage')
       s = reduce(s, { type: 'CONFIRM_MARRIAGE', accept: false })
     else if (s.pendingDecision?.type === 'bigSpend')
@@ -29,6 +29,37 @@ function clearPendings(g: GameState): GameState {
 }
 
 describe('turn loop', () => {
+  it('live auto step leaves the walk so the board can animate', () => {
+    let g = createGame({ seatCount: 2, seed: 42, endAge: 45 })
+    g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
+    g = reduce(g, { type: 'SET_AUTO', enabled: true })
+    g = reduce(g, { type: 'SET_AUTO_CHOICE_MODE', value: 'auto' })
+    const started = reduce(g, { type: 'AUTO_STEP' })
+    expect(started.moveAnimation?.path.length).toBeGreaterThan(0)
+    expect(started.pendingEvent).toBeNull()
+
+    let s = started
+    let guard = 0
+    const seen = new Set<number>([s.players[0].position])
+    while (s.moveAnimation && guard++ < 20) {
+      s = reduce(s, { type: 'ANIM_STEP' })
+      const mover = s.players.find((p) => p.id === started.moveAnimation!.playerId)
+      if (mover) seen.add(mover.position)
+    }
+    expect(seen.size).toBeGreaterThan(1)
+    expect(s.moveAnimation).toBeNull()
+    expect(s.pendingEvent).toBeTruthy()
+  })
+
+  it('batch autoStep still finishes the walk in one call', () => {
+    let g = createGame({ seatCount: 2, seed: 42, endAge: 45 })
+    g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
+    g = { ...g, autoEnabled: true, players: g.players.map((p) => ({ ...p, isHuman: false })) }
+    const next = autoStep(g)
+    expect(next.moveAnimation).toBeNull()
+    expect(next.logs.some((l) => l.text.includes('走到'))).toBe(true)
+  })
+
   it('slots then event then optional location', () => {
     let g = createGame({ seatCount: 2, seed: 42, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })

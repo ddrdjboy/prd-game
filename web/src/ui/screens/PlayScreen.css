@@ -123,6 +123,20 @@
   width: 100%;
 }
 
+.free-life-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.free-life-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -330,6 +344,189 @@
   width: min(440px, 100%);
 }
 
+.play-art {
+  opacity: var(--play-art-opacity);
+}
+
+.play-art::after {
+  display: none;
+}
+
+.meet-blurb {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--c-ink);
+  opacity: 0.85;
+}
+
+.friend-detail-hero.is-xl {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.shop-item-thumb {
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+}
+
+.shop-item-thumb .portrait {
+  grid-row: 1 / span 2;
+}
+
+.shop-item-thumb em {
+  grid-column: 2 / -1;
+}
+
+.shop-list.date-partner-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 0.5rem;
+}
+
+.shop-item.date-partner-card {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+}
+
+@media (hover: hover) {
+  .shop-item.date-partner-card:hover .portrait img {
+    transform: scale(1.04);
+  }
+}
+
+.date-partner-card .portrait img {
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+.date-partner-card .portrait-caption span {
+  color: var(--c-muted);
+}
+
+.shop-item.venue-item {
+  grid-template-columns: 5.5rem 1fr auto;
+  align-items: center;
+}
+
+.venue-thumb {
+  position: relative;
+  grid-row: 1 / span 2;
+  width: 5.5rem;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--c-surface-solid);
+  box-shadow: inset 0 0 0 1px var(--c-line);
+}
+
+.venue-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.venue-item em {
+  grid-column: 2 / -1;
+}
+
+.venue-item.is-locked .venue-thumb img {
+  filter: grayscale(1) brightness(0.55);
+}
+
+.venue-lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--c-muted);
+  letter-spacing: 0.08em;
+}
+
+.date-cg {
+  position: relative;
+  height: 150px;
+  margin: -0.65rem -0.75rem 0.55rem;
+  overflow: hidden;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+
+.date-cg .scene-banner.date-cg-bg {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+.date-cg-portrait.portrait-card {
+  position: absolute;
+  left: 50%;
+  bottom: -0.5rem;
+  width: 100px;
+  transform: translateX(-50%);
+  box-shadow:
+    inset 0 0 0 1px var(--c-line-strong),
+    var(--glow-md-primary);
+  animation: cg-rise var(--dur-slow) var(--ease-out);
+}
+
+.date-cg-float {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--c-pos);
+  text-shadow: var(--glow-md-pos);
+  animation: cg-float 1.2s var(--ease-out) both;
+}
+
+@keyframes cg-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes cg-float {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .date-cg-portrait.portrait-card,
+  .date-cg-float {
+    animation: none;
+  }
+}
+
+@media (max-height: 700px) {
+  .date-cg {
+    height: 116px;
+  }
+
+  .date-cg-portrait.portrait-card {
+    width: 80px;
+  }
+}
+
 .space-detail-facts {
   margin: 0.75rem 0 1rem;
   padding-top: 0.75rem;
@@ -345,6 +542,31 @@
 
 .event-choices button.is-broke {
   text-decoration: none;
+}
+
+/* 自动代选：短暂按下变深闪动（贴近 :active），disabled 也不褪色 */
+button.is-auto-pressed,
+.shop-item.is-auto-pressed {
+  opacity: 1 !important;
+  background: color-mix(in srgb, #000 42%, var(--c-surface-sunken)) !important;
+  border-color: color-mix(in srgb, #000 35%, var(--c-line-strong)) !important;
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.55);
+  transform: scale(0.96);
+  filter: brightness(0.78);
+  z-index: 1;
+  position: relative;
+}
+
+button.primary.is-auto-pressed {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #000 40%, #d61aa8),
+    color-mix(in srgb, #000 40%, #6d3fd8)
+  ) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 3px 10px rgba(0, 0, 0, 0.6);
+  filter: brightness(0.82);
+  color: #fff;
 }
 
 .shop-detail-list {

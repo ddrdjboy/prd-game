@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { applyAffinityDelta } from '../src/game/affinity'
-import { EARLY_AGE_MAX, EARLY_PAY_BONUS, INVESTOR_START_BONUS } from '../src/game/config'
+import { EARLY_AGE_MAX, EARLY_PAY_BONUS } from '../src/game/config'
 import { createGame } from '../src/game/createGame'
 import { pickAiDate } from '../src/game/dating'
 import { calcFinance } from '../src/game/finance'
@@ -60,18 +60,17 @@ describe('体验打磨', () => {
     expect(g.logs.some((l) => l.text.includes('年轻红利'))).toBe(false)
   })
 
-  it('promote grants investor start bonus', () => {
+  it('enter free life replaces investor promote', () => {
     let g = withCareer(9)
     const id = g.players[0].id
-    const before = g.players[0].cash
     g = {
       ...g,
-      pendingDecision: { type: 'promote', playerId: id },
+      pendingDecision: { type: 'enterFreeLife', playerId: id },
     }
-    g = reduce(g, { type: 'PROMOTE_TO_INVESTOR' })
-    expect(g.players[0].track).toBe('investor')
-    expect(g.players[0].cash).toBeCloseTo(before + INVESTOR_START_BONUS, 5)
-    expect(g.logs.some((l) => l.text.includes('身份转变'))).toBe(true)
+    g = reduce(g, { type: 'ENTER_FREE_LIFE' })
+    expect(g.lifeMode).toBe('free')
+    expect(g.players[0].actionPoints).toBe(4)
+    expect(g.logs.some((l) => l.text.includes('自由生活'))).toBe(true)
   })
 
   it('investOffersFor hides investor-only on worker track', () => {

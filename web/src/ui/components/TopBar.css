@@ -97,6 +97,10 @@
   color: var(--c-neg);
 }
 
+.finance-chip-stats .networth {
+  color: var(--c-gold);
+}
+
 .progress-wrap {
   flex: 1;
   min-width: 180px;
@@ -164,6 +168,18 @@
 .top-actions button {
   padding: 0.35rem 0.7rem;
   border-radius: var(--r-pill);
+}
+
+.play-pace-full {
+  border-color: transparent;
+  background: var(--grad-primary);
+  color: #fff;
+}
+
+.play-pace-semi {
+  border-color: var(--c-gold);
+  background: rgba(255, 210, 63, 0.12);
+  color: var(--c-gold);
 }
 
 .top-actions .btn-short {

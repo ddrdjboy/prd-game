@@ -20,15 +20,16 @@ describe('event affordability stuck fix', () => {
     }
   })
 
-  it('autoStep clears pendingEvent when broke on paid choices', () => {
+  it('autoStep clears pendingEvent when AI is broke on paid choices', () => {
     let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
     g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
-    const human = g.players[0]
+    const ai = g.players[1]
     g = {
       ...g,
-      players: g.players.map((p) => (p.id === human.id ? { ...p, cash: 0.02 } : p)),
+      turnPlayerIndex: 1,
+      players: g.players.map((p) => (p.id === ai.id ? { ...p, cash: 0.02 } : p)),
       pendingEvent: {
-        playerId: human.id,
+        playerId: ai.id,
         eventId: 'biz2',
         title: '淡季',
         text: 'x',
@@ -40,5 +41,24 @@ describe('event affordability stuck fix', () => {
     } satisfies GameState
     const next = autoStep(g)
     expect(next.pendingEvent).toBeNull()
+  })
+
+  it('uses the selected mode for human event choices during auto play', () => {
+    let g = createGame({ seatCount: 2, seed: 1, endAge: 45 })
+    g = reduce(g, { type: 'CHOOSE_CAREER', careerId: g.careerChoices[0].id })
+    const human = g.players[0]
+    const pendingEvent = {
+      playerId: human.id,
+      eventId: 'biz2',
+      title: '淡季',
+      text: 'x',
+      landIndex: 0,
+      landTrack: 'worker' as const,
+    }
+    const automatic = autoStep({ ...g, autoEnabled: true, autoChoiceMode: 'auto', pendingEvent })
+    const manual = autoStep({ ...g, autoEnabled: true, autoChoiceMode: 'manual', pendingEvent })
+
+    expect(automatic.pendingEvent).toBeNull()
+    expect(manual.pendingEvent).toEqual(pendingEvent)
   })
 })

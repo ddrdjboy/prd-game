@@ -29,16 +29,27 @@ export function runAutoSeason(state: GameState, maxSteps = 80): GameState {
 }
 
 export function runAutoUntilBreak(state: GameState, maxSteps = 400): GameState {
+  const originalAuto = state.autoEnabled
   let s = { ...state, autoEnabled: true }
   for (let i = 0; i < maxSteps; i++) {
-    if (s.phase === 'settlement') return s
+    if (s.phase === 'settlement') return { ...s, autoEnabled: originalAuto }
     if (s.pendingDecision && isCriticalPending(s)) {
       const owner = s.players.find((p) => p.id === s.pendingDecision!.playerId)
-      if (owner?.isHuman) return s
+      if (owner?.isHuman) return { ...s, autoEnabled: originalAuto }
     }
-    const next = autoStep(s)
+    const next = autoStep(s, true)
     if (next === s) break
     s = next
+    // 批量推进遇到人类玩家的其它待决弹框也应停下
+    if (s.pendingEvent || s.pendingDate || s.pendingLocation || s.pendingDecision) {
+      const pid =
+        s.pendingEvent?.playerId ??
+        s.pendingDate?.playerId ??
+        s.pendingLocation?.playerId ??
+        s.pendingDecision?.playerId
+      const owner = s.players.find((p) => p.id === pid)
+      if (owner?.isHuman) return { ...s, autoEnabled: originalAuto }
+    }
   }
-  return s
+  return { ...s, autoEnabled: originalAuto }
 }

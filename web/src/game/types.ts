@@ -2,6 +2,18 @@ import type { SEASONS } from './config'
 
 export type Season = (typeof SEASONS)[number]
 export type Track = 'worker' | 'investor'
+/** worker=打工人棋盘；free=财富自由后的地点生活 */
+export type LifeMode = 'worker' | 'free'
+export type FreeLifePlaceId =
+  | 'home'
+  | 'cafe'
+  | 'riverside'
+  | 'gallery'
+  | 'market'
+  | 'office'
+  | 'club'
+export type AutoChoiceMode = 'auto' | 'manual'
+export type AutoSpeed = 'fast' | 'medium' | 'slow'
 
 /** 地图格子（落点互动） */
 export type SpaceKind =
@@ -140,8 +152,67 @@ export interface LogEntry {
   text: string
 }
 
+export type FreeLifeChoiceEffect =
+  | { type: 'cash'; amount: number }
+  | { type: 'passive'; amount: number }
+  | { type: 'asset'; amount: number; name?: string }
+  | { type: 'affinity'; amount: number }
+  | { type: 'meet' }
+  | { type: 'quest'; quest: FreeLifeQuest }
+  | { type: 'clearQuest'; questId: string }
+
+export interface FreeLifeQuest {
+  id: string
+  placeId: FreeLifePlaceId
+  label: string
+  characterName: string
+}
+
+export interface FreeLifeSceneChoice {
+  id: string
+  label: string
+  effects: FreeLifeChoiceEffect[]
+}
+
+export interface FreeLifeScene {
+  id: string
+  placeId: FreeLifePlaceId
+  title: string
+  lines: string[]
+  characterName?: string
+  portraitId?: string
+  artKey: FreeLifePlaceId
+  choices: FreeLifeSceneChoice[]
+}
+
+export interface PendingFreeScene {
+  playerId: string
+  scene: FreeLifeScene
+}
+
+export type PendingClub =
+  | {
+      step: 'pickTeam'
+      playerId: string
+      cpuTeam: import('./clubPk').ClubFighter[]
+    }
+  | {
+      step: 'battle'
+      playerId: string
+      playerTeam: import('./clubPk').ClubFighter[]
+      cpuTeam: import('./clubPk').ClubFighter[]
+      result: import('./clubPk').ClubBattleResult
+    }
+  | {
+      step: 'recruit'
+      playerId: string
+      won: boolean
+      candidates: import('./clubPk').ClubFighter[]
+      lossTargetId: string | null
+    }
+
 export type PendingDecision =
-  | { type: 'promote'; playerId: string }
+  | { type: 'enterFreeLife'; playerId: string }
   | { type: 'marriage'; playerId: string; relationId: string }
   | { type: 'bigSpend'; playerId: string; investmentId: string; cost: number; cashflow: number; name: string }
   | { type: 'poach'; playerId: string; fromPlayerId: string; relationId: string }
@@ -206,6 +277,10 @@ export interface GameState {
   seatCount: number
   age: number
   seasonIndex: number
+  /** 自由生活月历 0–11；打工人阶段可忽略 */
+  monthIndex: number
+  lifeMode: LifeMode
+  questFlags: FreeLifeQuest[]
   turnPlayerIndex: number
   players: PlayerState[]
   careerChoices: Career[]
@@ -218,9 +293,13 @@ export interface GameState {
   pendingCasino: import('./casino').PendingCasino | null
   pendingVisitShop: import('./visitShop').PendingVisitShop | null
   pendingExchange: import('./exchange').PendingExchange | null
+  pendingFreeScene: PendingFreeScene | null
+  pendingClub: PendingClub | null
   slotSpin: SlotSpin | null
   moveAnimation: MoveAnimation | null
   autoEnabled: boolean
+  autoChoiceMode: AutoChoiceMode
+  autoSpeed: AutoSpeed
   autoSensitivity: AutoSensitivity
   seed: number
   rngState: number
@@ -295,14 +374,23 @@ export type GameAction =
   | { type: 'DATE_PICK_PARTNER'; relationId: string }
   | { type: 'DATE_CONFIRM_VENUE'; venueId: string }
   | { type: 'DATE_CANCEL' }
-  | { type: 'PROMOTE_TO_INVESTOR' }
-  | { type: 'SKIP_PROMOTE' }
+  | { type: 'ENTER_FREE_LIFE' }
+  | { type: 'SKIP_FREE_LIFE' }
+  | { type: 'FREE_VISIT'; placeId: FreeLifePlaceId }
+  | { type: 'FREE_SCENE_CHOICE'; choiceId: string }
+  | { type: 'FREE_CLOSE_MONTH' }
+  | { type: 'CLUB_CONFIRM_TEAM'; relationIds: string[] }
+  | { type: 'CLUB_FINISH_BATTLE' }
+  | { type: 'CLUB_RECRUIT'; fighterId: string | null }
+  | { type: 'CLUB_CANCEL' }
   | { type: 'CONFIRM_MARRIAGE'; accept: boolean }
   | { type: 'CONFIRM_BIG_SPEND'; accept: boolean }
   | { type: 'CONFIRM_POACH'; accept: boolean }
   | { type: 'RESOLVE_BANKRUPT' }
   | { type: 'END_TURN' }
   | { type: 'SET_AUTO'; enabled: boolean }
+  | { type: 'SET_AUTO_CHOICE_MODE'; value: AutoChoiceMode }
+  | { type: 'SET_AUTO_SPEED'; value: AutoSpeed }
   | { type: 'SET_SENSITIVITY'; value: AutoSensitivity }
   | { type: 'AUTO_STEP' }
   | { type: 'LOAD_STATE'; state: GameState }
@@ -310,6 +398,8 @@ export type GameAction =
 export interface ScoreResult {
   free: boolean
   netWorth: number
+  /** 见过的角色数（副结算） */
+  charactersMet: number
   relationScore: number
   grade: 'S' | 'A' | 'B' | 'C'
   comment: string

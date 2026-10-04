@@ -1,5 +1,18 @@
 import { buildTrack, isPaydaySpace, move, spaceHasLocationAction } from './board'
-import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, POACH_COOLDOWN_TURNS, EARLY_AGE_MAX, EARLY_PAY_BONUS, INVESTOR_START_BONUS, SEASONS } from './config'
+import { ACTION_POINTS_PER_SEASON, BIG_SPEND_RATIO, POACH_COOLDOWN_TURNS, EARLY_AGE_MAX, EARLY_PAY_BONUS, SEASONS } from './config'
+import { isFreeLife } from './freeLife'
+import {
+  autoFreeLifeStep,
+  clubCancel,
+  clubConfirmTeam,
+  clubFinishBattle,
+  clubRecruit,
+  confirmEnterFreeLife,
+  freeCloseMonth,
+  freeSceneChoice,
+  freeVisit,
+  skipEnterFreeLife,
+} from './freeLifeReduce'
 import { CAREERS } from './careers'
 import { createGame } from './createGame'
 import { pickAiLocationAction } from './ai'
@@ -30,7 +43,7 @@ import {
 } from './office'
 import { VACANT_COST, VACANT_SHOP_CASHFLOW, VACANT_HIRE_EXTRA, shopItemById, investOfferById, PARK_REST_CASH, PARK_CHAT_BOOST, INVEST_SELL_RATIO } from './location'
 import { resolveSlotEvent } from './slotEvents'
-import { calcFinance, canPromote, rollShopSeason, round2 } from './finance'
+import { calcFinance, isFinanciallyFree, rollShopSeason, round2 } from './finance'
 import {
   casinoAiStep,
   casinoBaccaratBet,
@@ -504,23 +517,22 @@ function chooseCareer(state: GameState, careerId: string): GameState {
   return pushLog(s, `你选择了「${career.name}」。人生开始转动。`)
 }
 
-function promote(state: GameState, playerId: string): GameState {
-  let s = updatePlayer(state, playerId, (p) => ({
-    ...p,
-    track: 'investor' as const,
-    position: 0,
-    cash: round2(p.cash + INVESTOR_START_BONUS),
-  }))
-  const name = s.players.find((p) => p.id === playerId)!.name
-  return pushLog(
-    s,
-    `${name} 晋级投资人圈！身份转变，启动金 +${INVESTOR_START_BONUS} 万。`,
-  )
+function maybeOfferFreeLife(state: GameState, playerId: string, deferredLoc: GameState['deferredLocation']): GameState {
+  if (state.lifeMode === 'free') return state
+  const p = state.players.find((x) => x.id === playerId)
+  if (!p?.isHuman || !isFinanciallyFree(p) || state.pendingDecision) return state
+  return {
+    ...state,
+    pendingDecision: { type: 'enterFreeLife', playerId },
+    deferredLocation: deferredLoc,
+    pendingLocation: null,
+  }
 }
 
 function rollAndMove(state: GameState): GameState {
   if (
     state.phase !== 'playing' ||
+    isFreeLife(state) ||
     state.turnRolled ||
     state.pendingEvent ||
     state.pendingDecision ||
@@ -704,17 +716,7 @@ function resolveEventChoice(state: GameState, choiceId: string): GameState {
   s = { ...s, rngState: rng.state() }
 
   const loc = makeLocation(pending.playerId, pending.landTrack, pending.landIndex)
-  const p = s.players.find((x) => x.id === pending.playerId)!
-  if (canPromote(p) && p.track === 'worker' && !s.pendingDecision) {
-    if (p.isHuman) {
-      return {
-        ...s,
-        pendingDecision: { type: 'promote', playerId: p.id },
-        deferredLocation: loc,
-      }
-    }
-    s = promote(s, p.id)
-  }
+  s = maybeOfferFreeLife(s, pending.playerId, loc)
 
   // 任何决策弹层优先：落点延后，避免双 modal 叠层
   if (s.pendingDecision) {
@@ -1461,13 +1463,23 @@ function spendAction(state: GameState, action: 'date'): GameState {
 }
 
 function endTurn(state: GameState): GameState {
+  if (isFreeLife(state)) {
+    // 自由生活用 FREE_CLOSE_MONTH；若 AP 用尽则顺带月结
+    const human = state.players.find((p) => p.isHuman)
+    if (human && human.actionPoints <= 0 && !state.pendingFreeScene && !state.pendingClub) {
+      return freeCloseMonth(state)
+    }
+    return state
+  }
   if (
     state.pendingEvent ||
     state.pendingDecision ||
     state.pendingDate ||
     state.moveAnimation ||
     state.slotSpin ||
-    state.pendingLocation
+    state.pendingLocation ||
+    state.pendingFreeScene ||
+    state.pendingClub
   ) {
     return state
   }
@@ -1538,10 +1550,7 @@ function endTurn(state: GameState): GameState {
   }
 
   const current = s.players[s.turnPlayerIndex]
-  if (canPromote(current) && current.track === 'worker') {
-    if (current.isHuman) s = { ...s, pendingDecision: { type: 'promote', playerId: current.id } }
-    else s = promote(s, current.id)
-  }
+  s = maybeOfferFreeLife(s, current.id, s.deferredLocation)
   return s
 }
 
@@ -1550,23 +1559,51 @@ export function isCriticalPending(state: GameState): boolean {
   const t = state.pendingDecision.type
   if (state.autoSensitivity === 'low') return t === 'bankrupt' || t === 'poach'
   if (state.autoSensitivity === 'high') return true
-  return t === 'promote' || t === 'marriage' || t === 'bigSpend' || t === 'poach' || t === 'bankrupt'
+  return (
+    t === 'enterFreeLife' ||
+    t === 'marriage' ||
+    t === 'bigSpend' ||
+    t === 'poach' ||
+    t === 'bankrupt'
+  )
 }
 
 function pickSpend(_p: PlayerState): 'date' {
   return 'date'
 }
 
-/** One atomic auto step */
-export function autoStep(state: GameState): GameState {
+/** One atomic auto step.
+ *  pauseHumanPending=true：遇到人类玩家的待决弹框会停下来。
+ *  pauseHumanPending=false 且 autoEnabled=true：所有弹框（含人类）都自动替其选择。
+ *  playMove=true：走出 moveAnimation 后停住，交给界面逐格播放（自己和电脑都一样）。 */
+export function autoStep(
+  state: GameState,
+  pauseHumanPending = state.autoChoiceMode === 'manual',
+  playMove = false,
+): GameState {
   if (state.phase !== 'playing') return state
+
+  const autoResolveHuman = state.autoEnabled && !pauseHumanPending
+
+  if (isFreeLife(state)) {
+    if (state.pendingDecision?.type === 'enterFreeLife') {
+      const owner = state.players.find((p) => p.id === state.pendingDecision!.playerId)
+      if (owner?.isHuman && !autoResolveHuman) return state
+      return confirmEnterFreeLife(state)
+    }
+    if (!autoResolveHuman && state.players[state.turnPlayerIndex]?.isHuman) {
+      if (state.pendingFreeScene || state.pendingClub) return state
+      return state
+    }
+    return autoFreeLifeStep(state)
+  }
 
   if (state.slotSpin) {
     return finishSlot(state)
   }
 
-  // Skip walk animation in auto/AI
   if (state.moveAnimation) {
+    if (playMove) return state
     return finishMove(state)
   }
 
@@ -1574,10 +1611,9 @@ export function autoStep(state: GameState): GameState {
     const d = state.pendingDecision
     const ownerId = d.playerId
     const owner = state.players.find((p) => p.id === ownerId)
-    if (owner?.isHuman && isCriticalPending(state)) return state
-    if (d.type === 'promote') {
-      let s = promote({ ...state, pendingDecision: null }, d.playerId)
-      return releaseDeferredLocation(s)
+    if (owner?.isHuman && !autoResolveHuman) return state
+    if (d.type === 'enterFreeLife') {
+      return confirmEnterFreeLife(state)
     }
     if (d.type === 'marriage') return deepenBond({ ...state, pendingDecision: null }, d.playerId, d.relationId, true)
     if (d.type === 'bigSpend') return reduce({ ...state }, { type: 'CONFIRM_BIG_SPEND', accept: owner?.aiStyle === 'aggressive' })
@@ -1588,7 +1624,7 @@ export function autoStep(state: GameState): GameState {
 
   if (state.pendingEvent) {
     const p = state.players.find((x) => x.id === state.pendingEvent!.playerId)
-    if (p?.isHuman && !state.autoEnabled) return state
+    if (p?.isHuman && !autoResolveHuman) return state
     const event = EVENTS.find((e) => e.id === state.pendingEvent!.eventId)
     if (!event || !p) return resolveEventChoice(state, 'accept')
     return resolveEventChoice(state, pickEventChoice(event, p))
@@ -1596,21 +1632,23 @@ export function autoStep(state: GameState): GameState {
 
   if (state.pendingDate) {
     const p = state.players.find((x) => x.id === state.pendingDate!.playerId)
-    if (p?.isHuman && !state.autoEnabled) return state
+    if (p?.isHuman && !autoResolveHuman) return state
     return resolvePendingDateAuto(state)
   }
 
   if (state.pendingLocation) {
     const p = state.players.find((x) => x.id === state.pendingLocation!.playerId)
-    if (p?.isHuman && !state.autoEnabled) return state
+    if (p?.isHuman && !autoResolveHuman) return state
     return applyAiLocation(state)
   }
 
   const current = state.players[state.turnPlayerIndex]
   if (current.isHuman && !state.autoEnabled) return state
 
+  const resolveFor = !current.isHuman || autoResolveHuman
+
   let s = state
-  if (current.actionPoints > 0) s = spendAction(s, pickSpend(current))
+  if (resolveFor && current.actionPoints > 0) s = spendAction(s, pickSpend(current))
   if (
     !s.pendingEvent &&
     !s.pendingDecision &&
@@ -1622,15 +1660,16 @@ export function autoStep(state: GameState): GameState {
     s = rollAndMove(s)
   }
   if (s.slotSpin) s = finishSlot(s)
+  if (playMove && s.moveAnimation) return s
   if (s.moveAnimation) s = finishMove(s)
-  if (s.pendingDate && (!current.isHuman || s.autoEnabled)) s = resolvePendingDateAuto(s)
-  if (s.pendingEvent && (!current.isHuman || s.autoEnabled)) {
+  if (s.pendingDate && resolveFor) s = resolvePendingDateAuto(s)
+  if (s.pendingEvent && resolveFor) {
     const ev = EVENTS.find((e) => e.id === s.pendingEvent!.eventId)
     const pl = s.players.find((x) => x.id === s.pendingEvent!.playerId)
     if (ev && pl) s = resolveEventChoice(s, pickEventChoice(ev, pl))
     else s = resolveEventChoice(s, 'accept')
   }
-  if (s.pendingLocation && (!current.isHuman || s.autoEnabled)) {
+  if (s.pendingLocation && resolveFor) {
     s = applyAiLocation(s)
   }
   if (
@@ -1777,15 +1816,26 @@ export function reduce(state: GameState, action: GameAction): GameState {
       return dateConfirmVenue(state, action.venueId)
     case 'DATE_CANCEL':
       return dateCancel(state)
-    case 'PROMOTE_TO_INVESTOR': {
-      if (state.pendingDecision?.type !== 'promote') return state
-      const s = promote({ ...state, pendingDecision: null }, state.pendingDecision.playerId)
+    case 'ENTER_FREE_LIFE':
+      return confirmEnterFreeLife(state)
+    case 'SKIP_FREE_LIFE': {
+      const s = skipEnterFreeLife(state)
       return releaseDeferredLocation(s)
     }
-    case 'SKIP_PROMOTE': {
-      const s = pushLog({ ...state, pendingDecision: null }, '你选择暂时留在打工人圈。')
-      return releaseDeferredLocation(s)
-    }
+    case 'FREE_VISIT':
+      return freeVisit(state, action.placeId)
+    case 'FREE_SCENE_CHOICE':
+      return freeSceneChoice(state, action.choiceId)
+    case 'FREE_CLOSE_MONTH':
+      return freeCloseMonth(state)
+    case 'CLUB_CONFIRM_TEAM':
+      return clubConfirmTeam(state, action.relationIds)
+    case 'CLUB_FINISH_BATTLE':
+      return clubFinishBattle(state)
+    case 'CLUB_RECRUIT':
+      return clubRecruit(state, action.fighterId)
+    case 'CLUB_CANCEL':
+      return clubCancel(state)
     case 'CONFIRM_MARRIAGE': {
       if (state.pendingDecision?.type !== 'marriage') return state
       const d = state.pendingDecision
@@ -1863,10 +1913,14 @@ export function reduce(state: GameState, action: GameAction): GameState {
       return endTurn(state)
     case 'SET_AUTO':
       return { ...state, autoEnabled: action.enabled }
+    case 'SET_AUTO_CHOICE_MODE':
+      return { ...state, autoChoiceMode: action.value }
+    case 'SET_AUTO_SPEED':
+      return { ...state, autoSpeed: action.value }
     case 'SET_SENSITIVITY':
       return { ...state, autoSensitivity: action.value }
     case 'AUTO_STEP':
-      return autoStep(state)
+      return autoStep(state, state.autoChoiceMode === 'manual', true)
     default:
       return state
   }

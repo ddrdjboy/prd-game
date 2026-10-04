@@ -1,12 +1,83 @@
 .home {
   min-height: 85vh;
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 640px);
+  justify-content: center;
+  align-items: center;
+}
+
+.home-art {
+  background-position: center 30%;
+}
+
+.home-art::after {
+  background: linear-gradient(
+    180deg,
+    rgba(7, 6, 15, 0.2) 0%,
+    rgba(7, 6, 15, 0.35) 55%,
+    rgba(7, 6, 15, 0.75) 100%
+  );
 }
 
 .home-hero {
   max-width: 640px;
+  min-width: 0;
   text-align: left;
+  padding: 1.25rem 1.4rem;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.home-cast {
+  margin-top: 1.25rem;
+}
+
+.home-cast-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--c-primary);
+  text-shadow: var(--glow-sm-primary);
+}
+
+.home-cast-strip {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.home-cast-item {
+  flex: 0 0 auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  scroll-snap-align: start;
+}
+
+.home-cast-item figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.home-cast-item strong {
+  font-size: 0.78rem;
+  color: var(--c-ink);
+}
+
+.home-cast-item span {
+  font-size: 0.65rem;
+  color: var(--c-muted);
 }
 
 .home-hero h1 {
@@ -106,6 +177,11 @@
     min-height: auto;
     padding: 0.5rem 0 1rem;
     align-content: start;
+  }
+
+  .home-hero {
+    padding: 1rem 1rem 1.1rem;
+    margin-top: 28vh;
   }
 
   .home-hero h1 {

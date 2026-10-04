@@ -124,7 +124,7 @@ describe('visit opponent shop', () => {
     let g = withStaff(baseState())
     g = {
       ...g,
-      pendingDecision: { type: 'promote', playerId: 'p0' },
+      pendingDecision: { type: 'enterFreeLife', playerId: 'p0' },
       deferredLocation: {
         playerId: 'p0',
         spaceKind: 'vacant',
@@ -135,7 +135,7 @@ describe('visit opponent shop', () => {
       pendingLocation: null,
       pendingVisitShop: null,
     }
-    g = reduce(g, { type: 'SKIP_PROMOTE' })
+    g = reduce(g, { type: 'SKIP_FREE_LIFE' })
     expect(g.pendingVisitShop?.ownerId).toBe('p1')
     expect(g.pendingVisitShop?.shopId).toBe('lot-worker-3-99')
     expect(g.pendingVisitShop?.step).toBe('pay')
@@ -146,7 +146,7 @@ describe('visit opponent shop', () => {
     let g = withStaff(baseState())
     g = {
       ...g,
-      pendingDecision: { type: 'promote', playerId: 'p1' },
+      pendingDecision: { type: 'enterFreeLife', playerId: 'p1' },
       deferredLocation: {
         playerId: 'p1',
         spaceKind: 'vacant',
@@ -158,7 +158,7 @@ describe('visit opponent shop', () => {
       pendingVisitShop: null,
       turnPlayerIndex: 1,
     }
-    g = reduce(g, { type: 'SKIP_PROMOTE' })
+    g = reduce(g, { type: 'SKIP_FREE_LIFE' })
     expect(g.pendingVisitShop).toBeNull()
     expect(g.pendingLocation).toBeNull()
     expect(g.logs.some((l) => /回到自己的店/.test(l.text))).toBe(true)

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { previewAutoDialogPick } from '../../game/ai'
 import {
+  AUTO_PICK_AFTER_MS,
+  AUTO_PICK_PRESS_MS,
   EVENT_TASTE_MS,
-  INVESTOR_START_BONUS,
   MOMENT_BANNER_MS,
   MOVE_STEP_MS,
   SLOT_SPIN_MS,
   getComboHoldMs,
 } from '../../game/config'
+import { isFreeLife } from '../../game/freeLife'
 import {
   DATE_VENUES,
   dateBoostFor,
@@ -14,7 +17,7 @@ import {
   relationStageLabel,
   venueUnlockedFor,
 } from '../../game/dating'
-import { characterByName, characterByPortraitId } from '../../game/portraits'
+import { characterByName, characterByPortraitId, portraitUrl } from '../../game/portraits'
 import { displayProgress, STAGE_LABEL } from '../../game/affinity'
 import { canAffordChoice, choiceCashCost, getEvent, resolveEventChoices } from '../../game/events'
 import { diffPlayerTaste, type TasteLine } from '../../game/eventTaste'
@@ -53,19 +56,23 @@ import {
 } from '../../game/exchange'
 import { resolveSlotEvent } from '../../game/slotEvents'
 import { buildSpaceDetail } from '../../game/spaceInfo'
-import type { AutoSensitivity, GameAction, GameState, PlayerState, Track } from '../../game/types'
+import type { AutoSpeed, GameAction, GameState, PlayerState, Track } from '../../game/types'
 import { Board } from '../components/Board'
+import { FreeLifePanel } from '../components/FreeLifePanel'
 import { FinancePanel } from '../components/FinancePanel'
+import { AppBarButton, PosterModal } from '../components/PosterModal'
 import { Portrait } from '../components/Portrait'
 import { TopBar } from '../components/TopBar'
+import { PLAY_ART, eventArt, spaceArt, venueArt } from '../art'
 import { TUTORIAL_LINES, hasSeenTutorial, markTutorialSeen } from '../tutorial'
 import './PlayScreen.css'
 
 type Props = {
   state: GameState
   dispatch: (a: GameAction) => void
-  onAutoRun: () => void
 }
+
+type TasteScene = { art?: string; name: string; portraitId?: string }
 
 type ShopPanel =
   | { step: 'list' }
@@ -93,7 +100,14 @@ type ManageUi =
   | { step: 'removeStaff'; shopId: string; shopName: string }
   | { step: 'setManager'; shopId: string; shopName: string }
 
-export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
+const AUTO_SPEED_ORDER: AutoSpeed[] = ['fast', 'medium', 'slow']
+
+function classNames(...parts: Array<string | false | null | undefined>): string | undefined {
+  const s = parts.filter(Boolean).join(' ')
+  return s || undefined
+}
+
+export function PlayScreen({ state, dispatch }: Props) {
   const human = state.players[0]
   const isHumanTurn = state.players[state.turnPlayerIndex]?.isHuman
   const spinning = Boolean(state.slotSpin)
@@ -114,22 +128,51 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     name: string
     portraitId?: string
     kindLabel: string
+    blurb?: string
   } | null>(null)
   const seenRelationIds = useRef<Set<string> | null>(null)
   const [eventTaste, setEventTaste] = useState<{
     title: string
     lines: TasteLine[]
     note?: string
+    scene?: TasteScene
   } | null>(null)
+  const [autoPressed, setAutoPressed] = useState(false)
   const seenLogId = useRef<string | null>(null)
   const tasteArmRef = useRef<{
     befores: PlayerState[]
     title: string
     waitFor: 'event' | 'location' | 'date' | 'decision'
     focusId: string
+    scene?: TasteScene
   } | null>(null)
   const recentLogs = [...state.logs].reverse().slice(0, 12)
   const latestLog = recentLogs[0]?.text
+  const autoPickKey = previewAutoDialogPick(state)
+  const autoPicking = Boolean(autoPickKey)
+  const autoHoldSig = autoPickKey
+    ? [
+        autoPickKey,
+        state.pendingEvent?.eventId,
+        state.pendingEvent?.playerId,
+        state.pendingDate?.step,
+        state.pendingDate?.relationId,
+        state.pendingDate?.playerId,
+        state.pendingDecision?.type,
+        state.pendingDecision?.playerId,
+        state.pendingLocation?.spaceKind,
+        state.pendingLocation?.playerId,
+        state.pendingVisitShop?.step,
+        state.pendingCasino?.screen,
+        state.pendingExchange?.screen,
+      ].join('|')
+    : null
+  const autoPressClass = (key: string) =>
+    autoPressed && autoPickKey === key ? 'is-auto-pressed' : undefined
+  const autoPressPrefix = (prefix: string) =>
+    autoPressed && autoPickKey?.startsWith(prefix) ? 'is-auto-pressed' : undefined
+  const locActor =
+    state.players.find((p) => p.id === state.pendingLocation?.playerId) ?? human
 
   const flashCashHint = (need: number, have?: number) => {
     const gap = have != null ? Math.max(0, need - have) : need
@@ -148,6 +191,33 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     }
   }, [])
 
+  // 自动代选：按下闪一下 → 松回 → AUTO_STEP 关弹框（时长跟快/中/慢）
+  useEffect(() => {
+    if (!autoHoldSig) {
+      setAutoPressed(false)
+      return
+    }
+    setAutoPressed(true)
+    const pressMs = AUTO_PICK_PRESS_MS[state.autoSpeed]
+    const afterMs = AUTO_PICK_AFTER_MS[state.autoSpeed]
+    const releaseTimer = window.setTimeout(() => setAutoPressed(false), pressMs)
+    const resolveTimer = window.setTimeout(() => {
+      dispatch({ type: 'AUTO_STEP' })
+    }, pressMs + afterMs)
+    return () => {
+      window.clearTimeout(releaseTimer)
+      window.clearTimeout(resolveTimer)
+      setAutoPressed(false)
+    }
+  }, [autoHoldSig, state.autoSpeed, dispatch])
+
+  // 经营区升级：先切到店铺列表，才能闪到具体店铺按钮
+  useEffect(() => {
+    if (autoPickKey?.startsWith('location:upgrade:')) {
+      setManageUi({ step: 'upgrade' })
+    }
+  }, [autoPickKey])
+
   // 人类结识新人时弹「遇见」立绘（存档加载不弹）
   useEffect(() => {
     const ids = human.relations.map((r) => r.id)
@@ -164,30 +234,51 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       name: r.name,
       portraitId: r.portraitId,
       kindLabel: ch ? `${ch.title} · ${relationStageLabel(r)}` : relationStageLabel(r),
+      blurb: ch?.blurb,
     })
   }, [human.relations])
+
+  // 遇见立绘：全自动时也闪一下确认按钮再关
+  useEffect(() => {
+    if (!meetReveal || !state.autoEnabled || state.autoChoiceMode !== 'auto') return
+    setAutoPressed(true)
+    const pressMs = AUTO_PICK_PRESS_MS[state.autoSpeed]
+    const afterMs = AUTO_PICK_AFTER_MS[state.autoSpeed]
+    const releaseTimer = window.setTimeout(() => setAutoPressed(false), pressMs)
+    const closeTimer = window.setTimeout(() => setMeetReveal(null), pressMs + afterMs)
+    return () => {
+      window.clearTimeout(releaseTimer)
+      window.clearTimeout(closeTimer)
+      setAutoPressed(false)
+    }
+  }, [meetReveal, state.autoEnabled, state.autoChoiceMode, state.autoSpeed])
 
   const dispatchTaste = (
     title: string,
     waitFor: 'event' | 'location' | 'date' | 'decision',
     action: GameAction,
     focusId: string = human.id,
+    scene?: TasteScene,
   ) => {
     tasteArmRef.current = {
       befores: state.players,
       title,
       waitFor,
       focusId,
+      scene,
     }
     dispatch(action)
   }
 
   const browseOpen = Boolean(shopPanel || friendPanel || logOpen || financeOpen || spaceDetail)
+  const freeLife = isFreeLife(state)
   const busy = Boolean(
     state.pendingEvent ||
       state.pendingDecision ||
       state.pendingLocation ||
       state.pendingDate ||
+      state.pendingFreeScene ||
+      state.pendingClub ||
       moving ||
       spinning ||
       comboFlash ||
@@ -294,24 +385,20 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         ? `待确认：${state.pendingDecision.name}（${state.pendingDecision.cost} 万）`
         : arm.waitFor === 'event' && state.pendingDecision?.type === 'marriage'
           ? '待确认：谈婚论嫁'
-          : arm.waitFor === 'event' && state.pendingDecision?.type === 'promote'
-            ? '可晋级投资人圈'
+          : arm.waitFor === 'event' && state.pendingDecision?.type === 'enterFreeLife'
+            ? '可进入自由生活'
             : undefined
 
-    setEventTaste({ title: arm.title, lines, note })
+    setEventTaste({ title: arm.title, lines, note, scene: arm.scene })
     const t = window.setTimeout(() => setEventTaste(null), EVENT_TASTE_MS)
     return () => window.clearTimeout(t)
     // 依赖 pending* 关闭瞬间；players 已在同一次 render 更新
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.pendingEvent, state.pendingLocation, state.pendingDate, state.pendingDecision])
 
-  // 逐格走棋动画
+  // 逐格走棋：手动、半自动、全自动都播，自己和电脑一样
   useEffect(() => {
     if (!state.moveAnimation) return
-    if (state.autoEnabled) {
-      dispatch({ type: 'FINISH_MOVE' })
-      return
-    }
     const anim = state.moveAnimation
     if (anim.path.length === 0) {
       dispatch({ type: 'FINISH_MOVE' })
@@ -323,7 +410,7 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
     }
     const t = window.setTimeout(() => dispatch({ type: 'FINISH_MOVE' }), MOVE_STEP_MS)
     return () => window.clearTimeout(t)
-  }, [state.moveAnimation, state.autoEnabled, dispatch])
+  }, [state.moveAnimation, dispatch])
 
   const highlightId =
     state.slotSpin?.playerId ??
@@ -336,13 +423,6 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       ? resolveSlotEvent(state.slotSpin.reels, state.slotSpin.track).comboLabel
       : null)
 
-  const cycleSensitivity = () => {
-    const order: AutoSensitivity[] = ['low', 'standard', 'high']
-    const i = order.indexOf(state.autoSensitivity)
-    const next = order[(i + 1) % order.length]
-    dispatch({ type: 'SET_SENSITIVITY', value: next })
-  }
-
   const dismissTutorial = () => {
     markTutorialSeen()
     setShowTutorial(false)
@@ -350,11 +430,32 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
 
   return (
     <div className="play">
+      <div
+        className="screen-art play-art"
+        style={{ backgroundImage: `url(${PLAY_ART})` }}
+        aria-hidden="true"
+      />
       <TopBar
         state={state}
-        onToggleAuto={() => dispatch({ type: 'SET_AUTO', enabled: !state.autoEnabled })}
-        onAutoRun={onAutoRun}
-        onCycleSensitivity={cycleSensitivity}
+        onCyclePlayPace={() => {
+          if (!state.autoEnabled) {
+            dispatch({ type: 'SET_AUTO', enabled: true })
+            dispatch({ type: 'SET_AUTO_CHOICE_MODE', value: 'auto' })
+            return
+          }
+          if (state.autoChoiceMode === 'auto') {
+            dispatch({ type: 'SET_AUTO_CHOICE_MODE', value: 'manual' })
+            return
+          }
+          dispatch({ type: 'SET_AUTO', enabled: false })
+        }}
+        onCycleAutoSpeed={() => {
+          const index = AUTO_SPEED_ORDER.indexOf(state.autoSpeed)
+          dispatch({
+            type: 'SET_AUTO_SPEED',
+            value: AUTO_SPEED_ORDER[(index + 1) % AUTO_SPEED_ORDER.length],
+          })
+        }}
         onOpenFinance={() => setFinanceOpen(true)}
         financeDisabled={busy || Boolean(shopPanel || friendPanel || logOpen || spaceDetail)}
       />
@@ -391,99 +492,116 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         </div>
       )}
       <div className="play-grid">
-        <Board
-          players={state.players}
-          highlightPlayerId={highlightId}
-          forcedTrack={forcedTrack}
-          slotSpin={state.slotSpin}
-          lastReels={state.lastReels}
-          comboLabel={comboLabelLive}
-          comboFlash={Boolean(comboFlash)}
-          spaceClickEnabled={!busy && !browseOpen}
-          onSpaceClick={(track, space) => {
-            if (busy || browseOpen) return
-            setSpaceDetail({ track, index: space.index })
-          }}
-        >
-          <button
-            type="button"
-            className="log-trigger"
-            disabled={busy || Boolean(shopPanel || friendPanel || financeOpen || spaceDetail)}
-            onClick={() => setLogOpen(true)}
-          >
-            <span className="log-trigger-main">
-              <strong>本季日志</strong>
-              {latestLog && <span className="log-preview muted">{latestLog}</span>}
-            </span>
-          </button>
-          <div className="controls controls-actions">
-            <div className="control-secondary">
-              <button
-                disabled={!isHumanTurn || busy || human.actionPoints <= 0}
-                onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
-              >
-                <span className="btn-full">互动</span>
-                <span className="btn-short">约会</span>
+        {freeLife ? (
+          <div className="free-life-shell">
+            <FreeLifePanel state={state} dispatch={dispatch} />
+            <div className="controls controls-actions free-life-side">
+              <button type="button" className="log-trigger" onClick={() => setLogOpen(true)}>
+                <strong>本月日志</strong>
               </button>
-              <button
-                disabled={busy || browseOpen}
-                onClick={() => setShopPanel({ step: 'list' })}
-              >
-                店铺
-              </button>
-              <button
-                disabled={busy || browseOpen}
-                onClick={() => setFriendPanel({ step: 'list' })}
-              >
+              <button disabled={Boolean(friendPanel)} onClick={() => setFriendPanel({ step: 'list' })}>
                 好友
+              </button>
+              <button disabled={Boolean(shopPanel)} onClick={() => setShopPanel({ step: 'list' })}>
+                店铺
               </button>
             </div>
           </div>
-          <div className="controls controls-spin">
-            {(() => {
-              const canRoll =
-                isHumanTurn && !busy && !state.autoEnabled && !state.turnRolled
-              const canEnd =
-                isHumanTurn && !busy && !state.autoEnabled && state.turnRolled
-              const pushAi = !isHumanTurn && !moving && !spinning && !busy
+        ) : (
+          <Board
+            players={state.players}
+            highlightPlayerId={highlightId}
+            forcedTrack={forcedTrack}
+            slotSpin={state.slotSpin}
+            lastReels={state.lastReels}
+            comboLabel={comboLabelLive}
+            comboFlash={Boolean(comboFlash)}
+            spaceClickEnabled={!busy && !browseOpen}
+            onSpaceClick={(track, space) => {
+              if (busy || browseOpen) return
+              setSpaceDetail({ track, index: space.index })
+            }}
+          >
+            <button
+              type="button"
+              className="log-trigger"
+              disabled={busy || Boolean(shopPanel || friendPanel || financeOpen || spaceDetail)}
+              onClick={() => setLogOpen(true)}
+            >
+              <span className="log-trigger-main">
+                <strong>本季日志</strong>
+                {latestLog && <span className="log-preview muted">{latestLog}</span>}
+              </span>
+            </button>
+            <div className="controls controls-actions">
+              <div className="control-secondary">
+                <button
+                  disabled={!isHumanTurn || busy || human.actionPoints <= 0}
+                  onClick={() => dispatch({ type: 'SPEND_ACTION', action: 'date' })}
+                >
+                  <span className="btn-full">互动</span>
+                  <span className="btn-short">约会</span>
+                </button>
+                <button
+                  disabled={busy || browseOpen}
+                  onClick={() => setShopPanel({ step: 'list' })}
+                >
+                  店铺
+                </button>
+                <button
+                  disabled={busy || browseOpen}
+                  onClick={() => setFriendPanel({ step: 'list' })}
+                >
+                  好友
+                </button>
+              </div>
+            </div>
+            <div className="controls controls-spin">
+              {(() => {
+                const canRoll =
+                  isHumanTurn && !busy && !state.autoEnabled && !state.turnRolled
+                const canEnd =
+                  isHumanTurn && !busy && !state.autoEnabled && state.turnRolled
+                const pushAi = !isHumanTurn && !moving && !spinning && !busy
 
-              if (pushAi) {
-                return (
-                  <button className="primary control-spin" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
-                    推进 AI
-                  </button>
-                )
-              }
+                if (pushAi) {
+                  return (
+                    <button className="primary control-spin" onClick={() => dispatch({ type: 'AUTO_STEP' })}>
+                      推进 AI
+                    </button>
+                  )
+                }
 
-              if (canEnd) {
+                if (canEnd) {
+                  return (
+                    <button
+                      className="primary control-spin"
+                      onClick={() => dispatch({ type: 'END_TURN' })}
+                    >
+                      结束回合
+                    </button>
+                  )
+                }
+
                 return (
                   <button
                     className="primary control-spin"
-                    onClick={() => dispatch({ type: 'END_TURN' })}
+                    disabled={!canRoll}
+                    onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
                   >
-                    结束回合
+                    {spinning
+                      ? '拉霸中…'
+                      : moving
+                        ? '行走中…'
+                        : busy
+                          ? '行动中…'
+                          : `777 拉霸${state.lastDice && !state.turnRolled ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
                   </button>
                 )
-              }
-
-              return (
-                <button
-                  className="primary control-spin"
-                  disabled={!canRoll}
-                  onClick={() => dispatch({ type: 'ROLL_AND_MOVE' })}
-                >
-                  {spinning
-                    ? '拉霸中…'
-                    : moving
-                      ? '行走中…'
-                      : busy
-                        ? '行动中…'
-                        : `777 拉霸${state.lastDice && !state.turnRolled ? ` · ${state.lastReels?.join('-') ?? state.lastDice}` : ''}`}
-                </button>
-              )
-            })()}
-          </div>
-        </Board>
+              })()}
+            </div>
+          </Board>
+        )}
       </div>
 
       {state.pendingEvent && (() => {
@@ -503,9 +621,14 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         }
         return (
           <div className="modal">
-            <div className="modal-card panel">
+            <PosterModal
+              badge="特别事件"
+              scene={eventArt(state.pendingEvent!.kind)}
+              variant="default"
+              ariaLabel={state.pendingEvent!.title}
+            >
               {state.pendingEvent!.slotHint && (
-                <p className="slot-event-hint muted">{state.pendingEvent!.slotHint}</p>
+                <p className="poster-kicker">{state.pendingEvent!.slotHint}</p>
               )}
               <h3>{state.pendingEvent!.title}</h3>
               <p>{state.pendingEvent!.text}</p>
@@ -513,19 +636,21 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 {choices.map((ch) => {
                   const cost = choiceCashCost(ch.effects)
                   const broke = cost > 0 && !canAffordChoice(cash, ch.effects)
+                  const pickKey = `event:${ch.id}`
                   return (
                     <button
                       key={ch.id}
                       type="button"
-                      className={[
+                      className={classNames(
                         ch.id === 'accept' || ch.id === 'raise' ? 'primary' : '',
                         broke ? 'is-broke' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ') || undefined}
-                      aria-disabled={broke}
+                        autoPressClass(pickKey),
+                      )}
+                      disabled={autoPicking}
+                      aria-disabled={broke || autoPicking}
                       title={broke ? `现金不足（需约 ${cost} 万）` : undefined}
                       onClick={() => {
+                        if (autoPicking) return
                         if (broke) {
                           flashCashHint(cost, cash)
                           return
@@ -540,20 +665,45 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 })}
                 {ev &&
                   ev.choices.every((ch) => !canAffordChoice(cash, ch.effects)) && (
-                    <button type="button" onClick={() => resolveChoice('__skip__')}>
+                    <button
+                      type="button"
+                      className={classNames(autoPressClass('event:__skip__'))}
+                      disabled={autoPicking}
+                      onClick={() => {
+                        if (autoPicking) return
+                        resolveChoice('__skip__')
+                      }}
+                    >
                       手头太紧，空手过关
                     </button>
                   )}
               </div>
-            </div>
+            </PosterModal>
           </div>
         )
       })()}
 
       {eventTaste && (
         <div className="modal event-taste-modal">
-          <div className="modal-card panel event-taste-card">
-            <p className="slot-event-hint muted">结果</p>
+          <PosterModal
+            badge="结果"
+            scene={eventTaste.scene?.art ?? eventArt('narrative')}
+            stickerSrc={
+              eventTaste.scene ? portraitUrl(eventTaste.scene.portraitId) : undefined
+            }
+            stickerAlt={eventTaste.scene?.name}
+            floatText={
+              eventTaste.scene
+                ? eventTaste.lines.find(
+                    (l) => l.tone === 'pos' && l.label.includes(eventTaste.scene!.name),
+                  )?.delta
+                : undefined
+            }
+            variant={eventTaste.scene ? 'tall' : 'location'}
+            ariaLabel={eventTaste.title}
+            onLeave={() => setEventTaste(null)}
+          >
+            <p className="poster-kicker">事件结算</p>
             <h3>{eventTaste.title}</h3>
             {eventTaste.lines.length === 0 ? (
               <p className="muted">本事件没有直接数值变化。</p>
@@ -568,84 +718,105 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               </ul>
             )}
             {eventTaste.note ? <p className="event-taste-note">{eventTaste.note}</p> : null}
-          </div>
+          </PosterModal>
         </div>
       )}
 
       {state.pendingLocation && !state.pendingDecision && !eventTaste && (
         <div className="modal">
-          <div className="modal-card panel location-card">
-            <p className="slot-event-hint">落点 · {state.pendingLocation.label}</p>
+          <PosterModal
+            badge={`落点 · ${state.pendingLocation.label}`}
+            scene={spaceArt(state.pendingLocation.spaceKind)}
+            variant="location"
+            ariaLabel={state.pendingLocation.label}
+            leaveDisabled={autoPicking}
+            onLeave={() => {
+              if (autoPicking) return
+              dispatch({ type: 'LOCATION_SKIP' })
+            }}
+          >
+            <p className="poster-kicker">落点互动</p>
             {state.pendingVisitShop && (
-              <VisitPanel state={state} human={human} dispatch={dispatch} />
+              <VisitPanel
+                state={state}
+                human={
+                  state.players.find((p) => p.id === state.pendingVisitShop!.playerId) ?? human
+                }
+                dispatch={dispatch}
+                autoPressClass={autoPressClass}
+                autoPicking={autoPicking}
+              />
             )}
             {!state.pendingVisitShop && state.pendingLocation.spaceKind === 'vacant' && (
               <>
-                <h3>空地待售</h3>
+                <h3>空地待售{locActor.id !== human.id ? ` · ${locActor.name}` : ''}</h3>
                 <p>花 {VACANT_COST} 万开店；没合适关系可加 {VACANT_HIRE_EXTRA} 万雇临时店长。</p>
-                {human.relations.filter((r) => canAssignToShop(human, r.id)).length === 0 && (
+                {locActor.relations.filter((r) => canAssignToShop(locActor, r.id)).length === 0 && (
                   <p className="muted">
                     暂无空闲人选。可雇临时店长，或先结识/等人进修完成后再来。
                   </p>
                 )}
-                <div className="shop-list">
-                  {human.relations
-                    .filter((r) => canAssignToShop(human, r.id))
+                <div className="poster-appbar-list" role="list">
+                  {locActor.relations
+                    .filter((r) => canAssignToShop(locActor, r.id))
                     .map((r) => (
-                      <button
+                      <AppBarButton
                         key={r.id}
-                        className="shop-item"
-                        disabled={human.cash + 1e-9 < VACANT_COST}
-                        onClick={() =>
+                        role="listitem"
+                        className={autoPressClass(`location:vacant:${r.id}`)}
+                        disabled={autoPicking || locActor.cash + 1e-9 < VACANT_COST}
+                        iconSrc={portraitUrl(r.portraitId)}
+                        title={r.name}
+                        meta={`好感 ${r.affinity}${
+                          r.skills.length ? ` · ${r.skills.map(skillLabel).join('、')}` : ''
+                        }`}
+                        action="购置并任店长"
+                        onClick={() => {
+                          if (autoPicking) return
                           dispatchTaste('空地开店', 'location', {
                             type: 'LOCATION_BUY_VACANT',
                             relationId: r.id,
                           })
-                        }
-                      >
-                        <strong>{r.name}</strong>
-                        <span>
-                          好感 {r.affinity}
-                          {r.skills.length
-                            ? ` · ${r.skills.map(skillLabel).join('、')}`
-                            : ''}
-                        </span>
-                        <em>购置并由其任店长</em>
-                      </button>
+                        }}
+                      />
                     ))}
-                  <button
-                    className="shop-item"
-                    disabled={human.cash + 1e-9 < VACANT_COST + VACANT_HIRE_EXTRA}
-                    onClick={() =>
+                  <AppBarButton
+                    role="listitem"
+                    className={autoPressClass('location:vacant:__hire__')}
+                    disabled={
+                      autoPicking || locActor.cash + 1e-9 < VACANT_COST + VACANT_HIRE_EXTRA
+                    }
+                    title="雇临时店长开店"
+                    meta={`${(VACANT_COST + VACANT_HIRE_EXTRA).toFixed(2)} 万`}
+                    action="自动结识一人"
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('空地开店', 'location', {
                         type: 'LOCATION_BUY_VACANT',
                         relationId: '__hire__',
                       })
-                    }
-                  >
-                    <strong>雇临时店长开店</strong>
-                    <span>{(VACANT_COST + VACANT_HIRE_EXTRA).toFixed(2)} 万</span>
-                    <em>自动结识一人当店长</em>
-                  </button>
+                    }}
+                  />
                 </div>
-                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>走开</button>
               </>
             )}
             {state.pendingLocation.spaceKind === 'shop' && (
               <>
-                <h3>商店柜台</h3>
+                <h3>商店柜台{locActor.id !== human.id ? ` · ${locActor.name}` : ''}</h3>
                 <p>买点东西增强关系或能力。</p>
                 <div className="shop-list">
                   {SHOP_ITEMS.map((item) => (
                     <button
                       key={item.id}
-                      className="shop-item"
-                      onClick={() =>
+                      className={classNames('shop-item', autoPressClass(`location:item:${item.id}`))}
+                      disabled={autoPicking}
+                      onClick={() => {
+                        if (autoPicking) return
                         dispatchTaste(`买「${item.name}」`, 'location', {
                           type: 'LOCATION_BUY_ITEM',
                           itemId: item.id,
                         })
-                      }
+                      }}
                     >
                       <strong>{item.name}</strong>
                       <span>{item.cost} 万</span>
@@ -653,20 +824,35 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>不买了</button>
+                <button
+                  className={classNames(autoPressClass('location:skip'))}
+                  disabled={autoPicking}
+                  onClick={() => {
+                    if (autoPicking) return
+                    dispatch({ type: 'LOCATION_SKIP' })
+                  }}
+                >
+                  不买了
+                </button>
               </>
             )}
             {state.pendingLocation.spaceKind === 'office' && officeUi && (
               <>
                 {officeUi.step === 'menu' && (
                   <>
-                    <h3>私人事务所</h3>
+                    <h3>私人事务所{locActor.id !== human.id ? ` · ${locActor.name}` : ''}</h3>
                     <p className="muted">本格一次互动：推荐、调好感或挖角。</p>
                     <div className="shop-list">
                       <button
-                        className="shop-item"
-                        disabled={human.cash + 1e-9 < OFFICE_RECOMMEND_COST}
-                        onClick={() => setOfficeUi({ step: 'recommend' })}
+                        className={classNames(
+                          'shop-item',
+                          autoPressClass('location:recommend'),
+                        )}
+                        disabled={autoPicking || locActor.cash + 1e-9 < OFFICE_RECOMMEND_COST}
+                        onClick={() => {
+                          if (autoPicking) return
+                          setOfficeUi({ step: 'recommend' })
+                        }}
                       >
                         <strong>推荐好友</strong>
                         <span>{OFFICE_RECOMMEND_COST} 万</span>
@@ -674,7 +860,11 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       </button>
                       <button
                         className="shop-item"
-                        onClick={() => setOfficeUi({ step: 'adjustPick' })}
+                        disabled={autoPicking}
+                        onClick={() => {
+                          if (autoPicking) return
+                          setOfficeUi({ step: 'adjustPick' })
+                        }}
                       >
                         <strong>调好感</strong>
                         <span>
@@ -683,25 +873,38 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         <em>对自己或他人的关系升温/降温</em>
                       </button>
                       <button
-                        className="shop-item"
+                        className={classNames('shop-item', autoPressClass('location:poach'))}
                         disabled={
-                          human.cash + 1e-9 < OFFICE_POACH_COST ||
-                          human.poachCooldown > 0 ||
-                          poachableTargets(human.id, state.players).length === 0
+                          autoPicking ||
+                          locActor.cash + 1e-9 < OFFICE_POACH_COST ||
+                          locActor.poachCooldown > 0 ||
+                          poachableTargets(locActor.id, state.players).length === 0
                         }
-                        onClick={() => setOfficeUi({ step: 'poachPlayer' })}
+                        onClick={() => {
+                          if (autoPicking) return
+                          setOfficeUi({ step: 'poachPlayer' })
+                        }}
                       >
                         <strong>挖角抢人</strong>
                         <span>
-                          {human.poachCooldown > 0
-                            ? `冷却 ${human.poachCooldown}`
+                          {locActor.poachCooldown > 0
+                            ? `冷却 ${locActor.poachCooldown}`
                             : `${OFFICE_POACH_COST} 万`}
                         </span>
                         <em>选手家再选目标关系</em>
                       </button>
                     </div>
                     <div className="modal-actions">
-                      <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>离开</button>
+                      <button
+                        className={classNames(autoPressClass('location:skip'))}
+                        disabled={autoPicking}
+                        onClick={() => {
+                          if (autoPicking) return
+                          dispatch({ type: 'LOCATION_SKIP' })
+                        }}
+                      >
+                        离开
+                      </button>
                     </div>
                   </>
                 )}
@@ -869,50 +1072,77 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
               <>
                 {manageUi.step === 'menu' && (
                   <>
-                    <h3>经营区</h3>
+                    <h3>经营区{locActor.id !== human.id ? ` · ${locActor.name}` : ''}</h3>
                     <p className="muted">升级店铺，或调整编制（加人 / 走人 / 换店长）。</p>
                     <div className="shop-list">
                       <button
-                        className="shop-item"
-                        disabled={!human.shops.length}
-                        onClick={() => setManageUi({ step: 'upgrade' })}
+                        className={classNames(
+                          'shop-item',
+                          autoPressPrefix('location:upgrade:'),
+                        )}
+                        disabled={autoPicking || !locActor.shops.length}
+                        onClick={() => {
+                          if (autoPicking) return
+                          setManageUi({ step: 'upgrade' })
+                        }}
                       >
                         <strong>升级店铺</strong>
                         <span>0.2 万</span>
                         <em>选一家加码</em>
                       </button>
                       <button
-                        className="shop-item"
-                        disabled={!human.shops.length}
-                        onClick={() => setManageUi({ step: 'staffShop' })}
+                        className={classNames(
+                          'shop-item',
+                          autoPressPrefix('location:staff:') ||
+                            autoPressPrefix('location:rebind:') ||
+                            undefined,
+                        )}
+                        disabled={autoPicking || !locActor.shops.length}
+                        onClick={() => {
+                          if (autoPicking) return
+                          setManageUi({ step: 'staffShop' })
+                        }}
                       >
                         <strong>编制管理</strong>
                         <span>免费</span>
                         <em>加人 · 走人 · 换店长</em>
                       </button>
                     </div>
-                    <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>下次再说</button>
+                    <button
+                      className={classNames(autoPressClass('location:skip'))}
+                      disabled={autoPicking}
+                      onClick={() => {
+                        if (autoPicking) return
+                        dispatch({ type: 'LOCATION_SKIP' })
+                      }}
+                    >
+                      下次再说
+                    </button>
                   </>
                 )}
                 {manageUi.step === 'upgrade' && (
                   <>
                     <h3>升级哪家店？</h3>
                     <div className="shop-list">
-                      {human.shops.map((shop) => {
+                      {locActor.shops.map((shop) => {
                         const cost = upgradeCostFor(shop)
                         const def = shopTypeById(shop.typeId)
-                        const bd = shopBreakdown(shop, human.relations)
+                        const bd = shopBreakdown(shop, locActor.relations)
                         return (
                           <button
                             key={shop.id}
-                            className="shop-item"
-                            disabled={human.cash + 1e-9 < cost}
-                            onClick={() =>
+                            className={classNames(
+                              'shop-item',
+                              autoPressClass(`location:upgrade:${shop.id}`),
+                            )}
+                            disabled={autoPicking || locActor.cash + 1e-9 < cost}
+                            onClick={() => {
+                              if (autoPicking) return
                               dispatchTaste(`升级「${shop.name}」`, 'location', {
                                 type: 'LOCATION_UPGRADE_SHOP',
                                 shopId: shop.id,
                               })
-                            }
+                            }}
                           >
                             <strong>{shop.name}</strong>
                             <span>
@@ -926,7 +1156,15 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                         )
                       })}
                     </div>
-                    <button onClick={() => setManageUi({ step: 'menu' })}>返回</button>
+                    <button
+                      disabled={autoPicking}
+                      onClick={() => {
+                        if (autoPicking) return
+                        setManageUi({ step: 'menu' })
+                      }}
+                    >
+                      返回
+                    </button>
                   </>
                 )}
                 {manageUi.step === 'staffShop' && (
@@ -1148,88 +1386,129 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
             {state.pendingLocation.spaceKind === 'casino' && (
               <CasinoPanel
                 state={state}
-                human={human}
+                human={locActor}
                 dispatch={dispatch}
                 dispatchTaste={dispatchTaste}
+                autoPressClass={autoPressClass}
+                autoPicking={autoPicking}
               />
             )}
             {state.pendingLocation.spaceKind === 'park' && (
               <>
-                <h3>公园</h3>
+                <h3>公园{locActor.id !== human.id ? ` · ${locActor.name}` : ''}</h3>
                 <p className="muted">休息回血，或与熟人免费小坐升温。</p>
-                <div className="shop-list">
-                  <button
-                    className="shop-item"
-                    onClick={() =>
+                <div className="poster-appbar-list" role="list">
+                  <AppBarButton
+                    role="listitem"
+                    className={autoPressClass('location:park-rest')}
+                    disabled={autoPicking}
+                    title="休息回血"
+                    meta={`+${PARK_REST_CASH} 万`}
+                    action="喘口气"
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('公园休息', 'location', { type: 'LOCATION_PARK_REST' })
-                    }
-                  >
-                    <strong>休息回血</strong>
-                    <span>+{PARK_REST_CASH} 万</span>
-                    <em>喘口气</em>
-                  </button>
-                  {human.relations.map((r) => (
-                      <button
-                        key={r.id}
-                        className="shop-item"
-                        onClick={() =>
-                          dispatchTaste(`公园小坐 · ${r.name}`, 'location', {
-                            type: 'LOCATION_PARK_CHAT',
-                            relationId: r.id,
-                          })
-                        }
-                      >
-                        <strong>与 {r.name} 小坐</strong>
-                        <span>好感 +{PARK_CHAT_BOOST}</span>
-                        <em>免费</em>
-                      </button>
-                    ))}
+                    }}
+                  />
+                  {locActor.relations.map((r) => (
+                    <AppBarButton
+                      key={r.id}
+                      role="listitem"
+                      className={autoPressClass(`location:park-chat:${r.id}`)}
+                      disabled={autoPicking}
+                      iconSrc={portraitUrl(r.portraitId)}
+                      title={`与 ${r.name} 小坐`}
+                      meta={`好感 +${PARK_CHAT_BOOST}`}
+                      action="免费"
+                      onClick={() => {
+                        if (autoPicking) return
+                        dispatchTaste(`公园小坐 · ${r.name}`, 'location', {
+                          type: 'LOCATION_PARK_CHAT',
+                          relationId: r.id,
+                        })
+                      }}
+                    />
+                  ))}
                 </div>
-                <button onClick={() => dispatch({ type: 'LOCATION_SKIP' })}>离开</button>
               </>
             )}
             {state.pendingLocation.spaceKind === 'invest' && (
-              <ExchangePanel state={state} human={human} dispatch={dispatch} dispatchTaste={dispatchTaste} />
+              <ExchangePanel
+                state={state}
+                human={locActor}
+                dispatch={dispatch}
+                dispatchTaste={dispatchTaste}
+                autoPressClass={autoPressClass}
+                autoPicking={autoPicking}
+              />
             )}
-          </div>
+          </PosterModal>
         </div>
       )}
 
       {meetReveal && (
         <div className="modal">
-          <div className="modal-card panel location-card meet-reveal">
-            <p className="muted">新的缘分</p>
-            <Portrait name={meetReveal.name} portraitId={meetReveal.portraitId} size="lg" />
-            <h3>遇见「{meetReveal.name}」</h3>
+          <PosterModal
+            badge="结识"
+            variant="meet"
+            meetSrc={portraitUrl(meetReveal.portraitId)}
+            meetAlt={meetReveal.name}
+            ariaLabel={`结识${meetReveal.name}`}
+            onLeave={() => setMeetReveal(null)}
+            leaveDisabled={Boolean(meetReveal && state.autoEnabled && state.autoChoiceMode === 'auto')}
+          >
+            <p className="poster-kicker">新的关系</p>
+            <h3>{meetReveal.name}</h3>
             <p className="muted">{meetReveal.kindLabel}</p>
+            {meetReveal.blurb ? <p className="meet-blurb">{meetReveal.blurb}</p> : null}
             <div className="modal-actions">
-              <button className="primary" type="button" onClick={() => setMeetReveal(null)}>
-                很高兴认识你
+              <button
+                className={classNames(
+                  'primary',
+                  meetReveal && autoPressed && 'is-auto-pressed',
+                )}
+                type="button"
+                disabled={Boolean(meetReveal && state.autoEnabled && state.autoChoiceMode === 'auto')}
+                onClick={() => setMeetReveal(null)}
+              >
+                打个招呼
               </button>
             </div>
-          </div>
+          </PosterModal>
         </div>
       )}
 
       {spaceDetail && (() => {
         const detail = buildSpaceDetail(state, spaceDetail.track, spaceDetail.index)
         return (
-          <div className="modal" role="dialog" aria-modal="true" aria-label="格子详情" onClick={() => setSpaceDetail(null)}>
-            <div className="modal-card panel location-card" onClick={(e) => e.stopPropagation()}>
-              <h3>{detail.headline}</h3>
-              <p className="muted">仅查看</p>
-              <p>{detail.description}</p>
-              <div className="space-detail-facts">
-                <p className="muted">当前实况</p>
-                {detail.facts.map((f) => (
-                  <p key={f}>{f}</p>
-                ))}
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="primary" onClick={() => setSpaceDetail(null)}>
-                  关闭
-                </button>
-              </div>
+          <div
+            className="modal"
+            role="presentation"
+            onClick={() => setSpaceDetail(null)}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <PosterModal
+                badge="格子"
+                scene={spaceArt(detail.kind)}
+                variant="location"
+                ariaLabel="格子详情"
+                onLeave={() => setSpaceDetail(null)}
+              >
+                <p className="poster-kicker">仅查看</p>
+                <h3>{detail.headline}</h3>
+                <p>{detail.description}</p>
+                <div className="space-detail-facts">
+                  <p className="muted">当前实况</p>
+                  {detail.facts.map((f) => (
+                    <p key={f}>{f}</p>
+                  ))}
+                </div>
+                <div className="modal-actions">
+                  <button type="button" className="primary" onClick={() => setSpaceDetail(null)}>
+                    知道了
+                  </button>
+                </div>
+              </PosterModal>
             </div>
           </div>
         )
@@ -1259,7 +1538,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                           onClick={() => setFriendPanel({ step: 'detail', relationId: r.id })}
                         >
                           <span className="portrait-row">
-                            <Portrait name={r.name} portraitId={r.portraitId} size="sm" />
+                            <Portrait
+                              name={r.name}
+                              portraitId={r.portraitId}
+                              size="sm"
+                              estranged={r.affinity <= 0}
+                            />
                             <span className="portrait-meta">
                               <strong>{r.name}</strong>
                               <span>
@@ -1303,15 +1587,22 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 const ch = characterByPortraitId(rel.portraitId) ?? characterByName(rel.name)
                 return (
                   <>
-                    <div className="friend-detail-hero">
-                      <Portrait name={rel.name} portraitId={rel.portraitId} size="lg" />
-                      <div>
-                        <h3>{rel.name}</h3>
-                        <p className="muted">
-                          {ch?.title ? `${ch.title} · ` : ''}
-                          {relationStageLabel(rel)}
-                        </p>
-                      </div>
+                    <div className="friend-detail-hero is-xl">
+                      <Portrait
+                        name={rel.name}
+                        portraitId={rel.portraitId}
+                        size="xl"
+                        estranged={rel.affinity <= 0}
+                        caption={
+                          <>
+                            <strong>{rel.name}</strong>
+                            <small>
+                              {ch?.title ? `${ch.title} · ` : ''}
+                              {relationStageLabel(rel)}
+                            </small>
+                          </>
+                        }
+                      />
                     </div>
                     <ul className="shop-detail-list">
                       {blurb ? <li className="muted">{blurb}</li> : null}
@@ -1525,35 +1816,56 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
         const picked = partners.find((r) => r.id === state.pendingDate!.relationId)
         return (
           <div className="modal">
-            <div className="modal-card panel location-card">
+            <PosterModal
+              badge="约会"
+              scene={venueArt('park') ?? spaceArt('park')}
+              variant="location"
+              ariaLabel="约会"
+              leaveDisabled={autoPicking}
+              onLeave={() => {
+                if (autoPicking) return
+                dispatch({ type: 'DATE_CANCEL' })
+              }}
+            >
               {state.pendingDate!.step === 'pickPartner' && (
                 <>
-                  <h3>互动：约谁？</h3>
+                  <p className="poster-kicker">互动</p>
+                  <h3>约谁？</h3>
                   <p className="muted">选一位关系，再选已解锁的见面方式。</p>
-                  <div className="shop-list">
+                  <div className="shop-list date-partner-grid">
                     {partners.map((r) => (
                       <button
                         key={r.id}
-                        className="shop-item shop-item-person"
-                        onClick={() => dispatch({ type: 'DATE_PICK_PARTNER', relationId: r.id })}
+                        className={classNames(
+                          'shop-item',
+                          'date-partner-card',
+                          autoPressClass(`date-partner:${r.id}`),
+                        )}
+                        disabled={autoPicking}
+                        onClick={() => {
+                          if (autoPicking) return
+                          dispatch({ type: 'DATE_PICK_PARTNER', relationId: r.id })
+                        }}
                       >
-                        <span className="portrait-row">
-                          <Portrait name={r.name} portraitId={r.portraitId} size="md" />
-                          <span className="portrait-meta">
-                            <strong>{r.name}</strong>
-                            <span>
-                              {relationStageLabel(r)} ·{' '}
-                              {r.affinity <= 0
-                                ? r.affinity
-                                : `${displayProgress(r.affinity)}/100`}
-                            </span>
-                          </span>
-                        </span>
+                        <Portrait
+                          name={r.name}
+                          portraitId={r.portraitId}
+                          size="card"
+                          estranged={r.affinity <= 0}
+                          caption={
+                            <>
+                              <strong>{r.name}</strong>
+                              <span>
+                                {relationStageLabel(r)} ·{' '}
+                                {r.affinity <= 0
+                                  ? r.affinity
+                                  : `${displayProgress(r.affinity)}/100`}
+                              </span>
+                            </>
+                          }
+                        />
                       </button>
                     ))}
-                  </div>
-                  <div className="modal-actions">
-                    <button onClick={() => dispatch({ type: 'DATE_CANCEL' })}>算了</button>
                   </div>
                 </>
               )}
@@ -1572,12 +1884,20 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       const broke = dater.cash + 1e-9 < v.cost
                       const boost = dateBoostFor(dater, v)
                       const locked = !unlocked
+                      const pickKey = `date-venue:${v.id}`
                       return (
                         <button
                           key={v.id}
                           type="button"
-                          className={`shop-item${broke || locked ? ' is-broke' : ''}`}
-                          aria-disabled={broke || locked}
+                          className={classNames(
+                            'shop-item',
+                            'venue-item',
+                            (broke || locked) && 'is-broke',
+                            locked && 'is-locked',
+                            autoPressClass(pickKey),
+                          )}
+                          disabled={autoPicking}
+                          aria-disabled={broke || locked || autoPicking}
                           title={
                             locked
                               ? `需达到·${STAGE_LABEL[v.minStage]}`
@@ -1586,17 +1906,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                                 : undefined
                           }
                           onClick={() => {
-                            if (locked) return
+                            if (autoPicking || locked) return
                             if (broke) {
                               flashCashHint(v.cost, dater.cash)
                               return
                             }
-                            dispatchTaste(`互动 · ${v.name}`, 'date', {
-                              type: 'DATE_CONFIRM_VENUE',
-                              venueId: v.id,
-                            })
+                            dispatchTaste(
+                              `互动 · ${v.name}`,
+                              'date',
+                              { type: 'DATE_CONFIRM_VENUE', venueId: v.id },
+                              human.id,
+                              {
+                                art: venueArt(v.id),
+                                name: picked.name,
+                                portraitId: picked.portraitId,
+                              },
+                            )
                           }}
                         >
+                          <span className="venue-thumb" aria-hidden="true">
+                            {venueArt(v.id) ? (
+                              <img src={venueArt(v.id)} alt="" loading="lazy" decoding="async" draggable={false} />
+                            ) : null}
+                            {locked ? <span className="venue-lock">未解锁</span> : null}
+                          </span>
                           <strong>{v.name}</strong>
                           <span>
                             {locked
@@ -1608,12 +1941,9 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                       )
                     })}
                   </div>
-                  <div className="modal-actions">
-                    <button onClick={() => dispatch({ type: 'DATE_CANCEL' })}>算了</button>
-                  </div>
                 </>
               )}
-            </div>
+            </PosterModal>
           </div>
         )
       })()}
@@ -1621,27 +1951,37 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
       {state.pendingDecision && !eventTaste && (
         <div className="modal">
           <div className="modal-card panel">
-            {state.pendingDecision.type === 'promote' && (
+            {state.pendingDecision.type === 'enterFreeLife' && (
               <>
-                <h3>可以晋级投资人圈</h3>
+                <h3>财富自由 · 进入自由生活</h3>
                 <p>
-                  被动收入已超过总支出（
+                  被动收入已覆盖总支出（
                   {(() => {
                     const f = calcFinance(human)
-                    return `${f.passiveIncome} / ${f.totalExpense}`
+                    return `${f.passiveIncome} 万/季 / ${f.totalExpense} 万/季`
                   })()}
-                  ）。进入外圈将获得启动金 +{INVESTOR_START_BONUS} 万。
+                  ）。棋盘将收起，改为地点图与会所对战，打到 45 岁。
                 </p>
                 <div className="modal-actions">
                   <button
-                    className="primary"
-                    onClick={() =>
-                      dispatchTaste('晋级投资人圈', 'decision', { type: 'PROMOTE_TO_INVESTOR' })
-                    }
+                    className={classNames('primary', autoPressClass('decision:enterFreeLife'))}
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
+                      dispatchTaste('进入自由生活', 'decision', { type: 'ENTER_FREE_LIFE' })
+                    }}
                   >
-                    晋级（+{INVESTOR_START_BONUS} 万）
+                    进入自由生活
                   </button>
-                  <button onClick={() => dispatch({ type: 'SKIP_PROMOTE' })}>暂留打工人圈</button>
+                  <button
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
+                      dispatch({ type: 'SKIP_FREE_LIFE' })
+                    }}
+                  >
+                    暂留打工人圈
+                  </button>
                 </div>
               </>
             )}
@@ -1651,23 +1991,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 <p>对方想和你更进一步。接受会提升好感。</p>
                 <div className="modal-actions">
                   <button
-                    className="primary"
-                    onClick={() =>
+                    className={classNames(
+                      'primary',
+                      autoPressClass('decision:marriage-accept'),
+                    )}
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('更进一步', 'decision', {
                         type: 'CONFIRM_MARRIAGE',
                         accept: true,
                       })
-                    }
+                    }}
                   >
                     接受
                   </button>
                   <button
-                    onClick={() =>
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('婉拒', 'decision', {
                         type: 'CONFIRM_MARRIAGE',
                         accept: false,
                       })
-                    }
+                    }}
                   >
                     婉拒
                   </button>
@@ -1682,23 +2029,31 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 </p>
                 <div className="modal-actions">
                   <button
-                    className="primary"
-                    onClick={() =>
+                    className={classNames(
+                      'primary',
+                      autoPressClass('decision:bigSpend-accept'),
+                    )}
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('确认大额买入', 'decision', {
                         type: 'CONFIRM_BIG_SPEND',
                         accept: true,
                       })
-                    }
+                    }}
                   >
                     买入
                   </button>
                   <button
-                    onClick={() =>
+                    className={classNames(autoPressClass('decision:bigSpend-decline'))}
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('放弃大额购入', 'decision', {
                         type: 'CONFIRM_BIG_SPEND',
                         accept: false,
                       })
-                    }
+                    }}
                   >
                     放弃
                   </button>
@@ -1721,23 +2076,30 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                 })()}
                 <div className="modal-actions">
                   <button
-                    className="primary"
-                    onClick={() =>
+                    className={classNames(
+                      'primary',
+                      autoPressClass('decision:poach-keep'),
+                    )}
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('挽留关系', 'decision', {
                         type: 'CONFIRM_POACH',
                         accept: false,
                       })
-                    }
+                    }}
                   >
                     挽留
                   </button>
                   <button
-                    onClick={() =>
+                    disabled={autoPicking}
+                    onClick={() => {
+                      if (autoPicking) return
                       dispatchTaste('放人', 'decision', {
                         type: 'CONFIRM_POACH',
                         accept: true,
                       })
-                    }
+                    }}
                   >
                     放人
                   </button>
@@ -1752,10 +2114,12 @@ export function PlayScreen({ state, dispatch, onAutoRun }: Props) {
                   万。新规则下连续两次发薪为负将直接破产结算。
                 </p>
                 <button
-                  className="primary"
-                  onClick={() =>
+                  className={classNames('primary', autoPressClass('decision:bankrupt'))}
+                  disabled={autoPicking}
+                  onClick={() => {
+                    if (autoPicking) return
                     dispatchTaste('破产处理', 'decision', { type: 'RESOLVE_BANKRUPT' })
-                  }
+                  }}
                 >
                   处理
                 </button>
@@ -1792,6 +2156,8 @@ function CasinoPanel({
   human,
   dispatch,
   dispatchTaste,
+  autoPressClass,
+  autoPicking = false,
 }: {
   state: GameState
   human: PlayerState
@@ -1801,9 +2167,12 @@ function CasinoPanel({
     waitFor: 'event' | 'location' | 'date' | 'decision',
     action: GameAction,
   ) => void
+  autoPressClass?: (key: string) => string | undefined
+  autoPicking?: boolean
 }) {
   const c = state.pendingCasino
   const bets = [...CASINO_BETS]
+  const press = (key: string) => autoPressClass?.(key)
 
   if (!c || c.screen === 'lobby') {
     return (
@@ -1811,26 +2180,50 @@ function CasinoPanel({
         <h3>赌场大厅</h3>
         <p className="muted">真规则桌台。可连玩，点离开才结束落点。</p>
         <div className="shop-list">
-          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'baccarat' })}>
+          <button
+            className={classNames('shop-item', press('location:casino-open:baccarat'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'CASINO_OPEN', game: 'baccarat' })
+            }}
+          >
             <strong>百家乐</strong>
             <span>庄抽水 5%</span>
             <em>闲 / 庄 / 和</em>
           </button>
-          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'dice' })}>
+          <button
+            className={classNames('shop-item', press('location:casino-open:dice'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'CASINO_OPEN', game: 'dice' })
+            }}
+          >
             <strong>骰子</strong>
             <span>Pass / Don't Pass</span>
             <em>可加 Field</em>
           </button>
-          <button className="shop-item" onClick={() => dispatch({ type: 'CASINO_OPEN', game: 'blackjack' })}>
+          <button
+            className={classNames('shop-item', press('location:casino-open:blackjack'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'CASINO_OPEN', game: 'blackjack' })
+            }}
+          >
             <strong>21 点</strong>
             <span>BJ 赔 3:2 · S17</span>
             <em>可加倍 / 分牌 / 保险</em>
           </button>
         </div>
         <button
-          onClick={() =>
+          className={classNames(press('location:casino-leave'))}
+          disabled={autoPicking}
+          onClick={() => {
+            if (autoPicking) return
             dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })
-          }
+          }}
         >
           离开赌场
         </button>
@@ -1876,8 +2269,23 @@ function CasinoPanel({
           </>
         )}
         <div className="modal-actions">
-          <button onClick={() => dispatch({ type: 'CASINO_LOBBY' })}>回大厅</button>
-          <button onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}>
+          <button
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'CASINO_LOBBY' })
+            }}
+          >
+            回大厅
+          </button>
+          <button
+            className={classNames(press('location:casino-leave'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })
+            }}
+          >
             离开
           </button>
         </div>
@@ -1952,12 +2360,22 @@ function CasinoPanel({
           </>
         )}
         <div className="modal-actions">
-          <button disabled={needRoll} onClick={() => dispatch({ type: 'CASINO_LOBBY' })}>
+          <button
+            disabled={autoPicking || needRoll}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'CASINO_LOBBY' })
+            }}
+          >
             回大厅
           </button>
           <button
-            disabled={needRoll}
-            onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}
+            className={classNames(press('location:casino-leave'))}
+            disabled={autoPicking || needRoll}
+            onClick={() => {
+              if (autoPicking) return
+              dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })
+            }}
           >
             离开
           </button>
@@ -2054,15 +2472,27 @@ function CasinoPanel({
       )}
       <div className="modal-actions">
         <button
-          disabled={bj?.phase === 'player' || bj?.phase === 'insurance'}
-          onClick={() => dispatch({ type: 'CASINO_LOBBY' })}
+          disabled={autoPicking || bj?.phase === 'player' || bj?.phase === 'insurance'}
+          onClick={() => {
+            if (autoPicking) return
+            dispatch({ type: 'CASINO_LOBBY' })
+          }}
         >
           回大厅
         </button>
         <button
           data-testid="casino-leave"
-          disabled={bj?.phase === 'player' || bj?.phase === 'insurance' || bj?.phase === 'dealer'}
-          onClick={() => dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })}
+          className={classNames(press('location:casino-leave'))}
+          disabled={
+            autoPicking ||
+            bj?.phase === 'player' ||
+            bj?.phase === 'insurance' ||
+            bj?.phase === 'dealer'
+          }
+          onClick={() => {
+            if (autoPicking) return
+            dispatchTaste('离开赌场', 'location', { type: 'CASINO_LEAVE' })
+          }}
         >
           离开
         </button>
@@ -2075,13 +2505,18 @@ function VisitPanel({
   state,
   human,
   dispatch,
+  autoPressClass,
+  autoPicking = false,
 }: {
   state: GameState
   human: PlayerState
   dispatch: (a: GameAction) => void
+  autoPressClass?: (key: string) => string | undefined
+  autoPicking?: boolean
 }) {
   const v = state.pendingVisitShop
   if (!v) return null
+  const press = (key: string) => autoPressClass?.(key)
   const owner = state.players.find((p) => p.id === v.ownerId)
   const shop = owner?.shops.find((s) => s.id === v.shopId)
   const typeLabel = shop ? shopTypeById(shop.typeId)?.label : undefined
@@ -2106,17 +2541,28 @@ function VisitPanel({
           <p>消费探店费后才能进店聊天、点服务。</p>
           <div className="shop-list">
             <button
-              className="shop-item"
+              className={classNames('shop-item', press('visit:pay'))}
               data-testid="visit-pay"
-              disabled={human.cash + 1e-9 < v.entryFee}
-              onClick={() => dispatch({ type: 'VISIT_PAY' })}
+              disabled={autoPicking || human.cash + 1e-9 < v.entryFee}
+              onClick={() => {
+                if (autoPicking) return
+                dispatch({ type: 'VISIT_PAY' })
+              }}
             >
               <strong>付钱进店</strong>
               <span>{v.entryFee} 万</span>
               <em>费用归店主</em>
             </button>
           </div>
-          <button data-testid="visit-leave" onClick={() => dispatch({ type: 'VISIT_LEAVE' })}>
+          <button
+            data-testid="visit-leave"
+            className={classNames(press('visit:leave'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'VISIT_LEAVE' })
+            }}
+          >
             不消费离开
           </button>
         </>
@@ -2127,9 +2573,13 @@ function VisitPanel({
           <p>店长「{manager?.name ?? '店长'}」在柜台招呼你。</p>
           <div className="shop-list">
             <button
-              className="shop-item"
+              className={classNames('shop-item', press('visit:talk'))}
               data-testid="visit-talk"
-              onClick={() => dispatch({ type: 'VISIT_TALK' })}
+              disabled={autoPicking}
+              onClick={() => {
+                if (autoPicking) return
+                dispatch({ type: 'VISIT_TALK' })
+              }}
             >
               <strong>与店长闲聊</strong>
               <span>印象 +6</span>
@@ -2146,10 +2596,13 @@ function VisitPanel({
             {staff.map((r) => (
               <button
                 key={r.id}
-                className="shop-item"
+                className={classNames('shop-item', press('visit:staff'))}
                 data-testid={`visit-staff-${r.id}`}
-                disabled={human.cash + 1e-9 < v.tipFee}
-                onClick={() => dispatch({ type: 'VISIT_PICK_STAFF', relationId: r.id })}
+                disabled={autoPicking || human.cash + 1e-9 < v.tipFee}
+                onClick={() => {
+                  if (autoPicking) return
+                  dispatch({ type: 'VISIT_PICK_STAFF', relationId: r.id })
+                }}
               >
                 <strong>{r.name}</strong>
                 <span>
@@ -2161,7 +2614,15 @@ function VisitPanel({
             ))}
           </div>
           {!staff.length && (
-            <button data-testid="visit-leave" onClick={() => dispatch({ type: 'VISIT_LEAVE' })}>
+            <button
+              data-testid="visit-leave"
+              className={classNames(press('visit:leave'))}
+              disabled={autoPicking}
+              onClick={() => {
+                if (autoPicking) return
+                dispatch({ type: 'VISIT_LEAVE' })
+              }}
+            >
               无人服务，离开
             </button>
           )}
@@ -2177,8 +2638,11 @@ function VisitPanel({
                 key={g.id}
                 className="shop-item"
                 data-testid={`visit-gift-${g.id}`}
-                disabled={human.cash + 1e-9 < g.cost}
-                onClick={() => dispatch({ type: 'VISIT_GIFT', giftId: g.id })}
+                disabled={autoPicking || human.cash + 1e-9 < g.cost}
+                onClick={() => {
+                  if (autoPicking) return
+                  dispatch({ type: 'VISIT_GIFT', giftId: g.id })
+                }}
               >
                 <strong>{g.name}</strong>
                 <span>{g.cost} 万</span>
@@ -2186,7 +2650,15 @@ function VisitPanel({
               </button>
             ))}
           </div>
-          <button data-testid="visit-skip-gift" onClick={() => dispatch({ type: 'VISIT_SKIP_GIFT' })}>
+          <button
+            data-testid="visit-skip-gift"
+            className={classNames(press('visit:skip-gift'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'VISIT_SKIP_GIFT' })
+            }}
+          >
             不送礼
           </button>
         </>
@@ -2206,14 +2678,18 @@ function VisitPanel({
           <div className="shop-list">
             {v.lastPoachOk == null && (
               <button
-                className="shop-item"
+                className={classNames('shop-item', press('visit:poach'))}
                 data-testid="visit-poach"
                 disabled={
+                  autoPicking ||
                   human.poachCooldown > 0 ||
                   human.cash + 1e-9 < VISIT_POACH_FEE ||
                   !v.staffId
                 }
-                onClick={() => dispatch({ type: 'VISIT_POACH_SPIN' })}
+                onClick={() => {
+                  if (autoPicking) return
+                  dispatch({ type: 'VISIT_POACH_SPIN' })
+                }}
               >
                 <strong>拉霸挖角</strong>
                 <span>{VISIT_POACH_FEE} 万</span>
@@ -2227,11 +2703,16 @@ function VisitPanel({
           </div>
           <button
             data-testid="visit-leave"
-            onClick={() =>
+            className={classNames(
+              press(v.lastPoachOk == null ? 'visit:skip-poach' : 'visit:leave'),
+            )}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
               dispatch({
                 type: v.lastPoachOk == null ? 'VISIT_SKIP_POACH' : 'VISIT_LEAVE',
               })
-            }
+            }}
           >
             {v.lastPoachOk == null ? '不挖角，离开' : '离开'}
           </button>
@@ -2247,6 +2728,8 @@ function ExchangePanel({
   human,
   dispatch,
   dispatchTaste,
+  autoPressClass,
+  autoPicking = false,
 }: {
   state: GameState
   human: PlayerState
@@ -2256,11 +2739,14 @@ function ExchangePanel({
     waitFor: 'event' | 'location' | 'date' | 'decision',
     action: GameAction,
   ) => void
+  autoPressClass?: (key: string) => string | undefined
+  autoPicking?: boolean
 }) {
   const ex = state.pendingExchange
   const screen = ex?.screen ?? 'lobby'
   const trade = ex?.trade
   const tradeDone = (ex?.tradeSessionsPlayed ?? 0) >= 1
+  const press = (key: string) => autoPressClass?.(key)
 
   if (!ex || screen === 'lobby') {
     return (
@@ -2271,17 +2757,27 @@ function ExchangePanel({
           <button
             className="shop-item"
             data-testid="exchange-open-funds"
-            onClick={() => dispatch({ type: 'EXCHANGE_OPEN_FUNDS' })}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'EXCHANGE_OPEN_FUNDS' })
+            }}
           >
             <strong>理财柜</strong>
             <span>债基 / ETF</span>
             <em>买完可回大厅</em>
           </button>
           <button
-            className="shop-item"
+            className={classNames(
+              'shop-item',
+              press(`location:exchange-trade:${EXCHANGE_STAKES[0]}`),
+            )}
             data-testid="exchange-open-trade"
-            disabled={tradeDone || human.cash + 1e-9 < EXCHANGE_STAKES[0]}
-            onClick={() => dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake: EXCHANGE_STAKES[0] })}
+            disabled={autoPicking || tradeDone || human.cash + 1e-9 < EXCHANGE_STAKES[0]}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake: EXCHANGE_STAKES[0] })
+            }}
           >
             <strong>交易盘 · {EXCHANGE_STAKES[0]} 万入场</strong>
             <span>{tradeDone ? '本落点已玩过' : '开局'}</span>
@@ -2290,9 +2786,12 @@ function ExchangePanel({
           {EXCHANGE_STAKES.filter((s) => s > EXCHANGE_STAKES[0]).map((stake) => (
             <button
               key={stake}
-              className="shop-item"
-              disabled={tradeDone || human.cash + 1e-9 < stake}
-              onClick={() => dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake })}
+              className={classNames('shop-item', press(`location:exchange-trade:${stake}`))}
+              disabled={autoPicking || tradeDone || human.cash + 1e-9 < stake}
+              onClick={() => {
+                if (autoPicking) return
+                dispatch({ type: 'EXCHANGE_OPEN_TRADE', stake })
+              }}
             >
               <strong>交易盘 · {stake} 万入场</strong>
               <span>更大本金</span>
@@ -2302,7 +2801,12 @@ function ExchangePanel({
         </div>
         <button
           data-testid="exchange-leave"
-          onClick={() => dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })}
+          className={classNames(press('location:exchange-leave'))}
+          disabled={autoPicking}
+          onClick={() => {
+            if (autoPicking) return
+            dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })
+          }}
         >
           离开交易所
         </button>
@@ -2322,11 +2826,12 @@ function ExchangePanel({
             return (
               <button
                 key={o.id}
-                className="shop-item"
-                disabled={human.cash + 1e-9 < cost}
-                onClick={() =>
+                className={classNames('shop-item', press(`location:invest:${o.id}`))}
+                disabled={autoPicking || human.cash + 1e-9 < cost}
+                onClick={() => {
+                  if (autoPicking) return
                   dispatch({ type: 'LOCATION_BUY_INVEST', offerId: o.id })
-                }
+                }}
               >
                 <strong>买 {o.name}</strong>
                 <span>{cost} 万</span>
@@ -2349,10 +2854,23 @@ function ExchangePanel({
           ))}
         </div>
         <div className="modal-actions">
-          <button onClick={() => dispatch({ type: 'EXCHANGE_LOBBY' })}>回大厅</button>
+          <button
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatch({ type: 'EXCHANGE_LOBBY' })
+            }}
+          >
+            回大厅
+          </button>
           <button
             data-testid="exchange-leave"
-            onClick={() => dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })}
+            className={classNames(press('location:exchange-leave'))}
+            disabled={autoPicking}
+            onClick={() => {
+              if (autoPicking) return
+              dispatchTaste('离开交易所', 'location', { type: 'EXCHANGE_LEAVE' })
+            }}
           >
             离开
           </button>

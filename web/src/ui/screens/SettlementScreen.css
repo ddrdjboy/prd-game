@@ -49,19 +49,37 @@
   margin: 0.5rem auto 1rem;
 }
 
+.settle-art {
+  background-position: center top;
+}
+
 .settle-portrait {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  text-align: left;
+  position: relative;
   margin: 0 auto 1.25rem;
-  max-width: 420px;
+  max-width: 320px;
+  text-align: left;
+}
+
+.settle-portrait .portrait-xl {
+  max-height: 56vh;
+  max-height: 56dvh;
+}
+
+.settle-portrait-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2.5rem 0.9rem 0.8rem;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: var(--grad-caption);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
 .settle-portrait h2 {
   margin: 0.15rem 0;
-  font-size: 1.45rem;
+  font-size: 1.8rem;
+  font-weight: 900;
 }
 
 .settle-portrait-label {

@@ -12,6 +12,7 @@ function stageWeight(affinity: number): number {
 export function scorePlayer(player: PlayerState): ScoreResult {
   const finance = calcFinance(player)
   const free = isFinanciallyFree(player)
+  const charactersMet = player.relations.length
 
   const relationScore = Math.round(
     player.relations.reduce((sum, r) => {
@@ -20,9 +21,9 @@ export function scorePlayer(player: PlayerState): ScoreResult {
     }, 0),
   )
 
+  // 主结算：净资产；副：见过角色数略加分
   const wealthPts = Math.max(0, finance.netWorth) * 10 + (free ? 40 : 0)
-  // affinity 量纲约 ×5，系数下调使档位接近旧版
-  const total = wealthPts + relationScore * 0.04
+  const total = wealthPts + charactersMet * 2 + relationScore * 0.02
 
   let grade: ScoreResult['grade'] = 'C'
   if (total >= 120) grade = 'S'
@@ -31,15 +32,16 @@ export function scorePlayer(player: PlayerState): ScoreResult {
 
   const comment = free
     ? grade === 'S' || grade === 'A'
-      ? '45 岁，你摸到了财富自由，关系也没有塌方。'
-      : '账面上自由了，但关系和生活还可以再丰盛一点。'
+      ? `45 岁，净资产可观，还结识了 ${charactersMet} 位朋友。`
+      : `账面上自由了；图鉴里有 ${charactersMet} 人，生活还能更丰盛。`
     : grade === 'A' || grade === 'B'
-      ? '还没完全自由，但你把人生过成了有声有色的故事。'
+      ? `还没完全自由，但你收过 ${charactersMet} 位朋友，故事不算空。`
       : '鼠圈很黏人。下一局换条路试试？'
 
   return {
     free,
     netWorth: finance.netWorth,
+    charactersMet,
     relationScore,
     grade,
     comment,

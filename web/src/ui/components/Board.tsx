@@ -101,6 +101,11 @@ function SquareRing({
       >
         {cells.map(({ space, row, col }) => {
           const here = players.filter((p) => p.track === track && p.position === space.index)
+          const highlightSeat =
+            highlightPlayerId != null
+              ? players.findIndex((p) => p.id === highlightPlayerId)
+              : -1
+          const highlighted = here.some((p) => p.id === highlightPlayerId)
           const isCorner = (row === 0 || row === rows - 1) && (col === 0 || col === cols - 1)
           const owned = space.kind === 'vacant' ? findShopAt(players, track, space.index) : null
           const ownerSeat =
@@ -116,7 +121,7 @@ function SquareRing({
               className={`square-cell kind-${space.kind}${
                 owned ? ` kind-owned-shop owned-seat-${ownerSeat}` : ''
               }${isCorner ? ' corner' : ''}${
-                here.some((p) => p.id === highlightPlayerId) ? ' active' : ''
+                highlighted ? ` active active-seat-${Math.max(0, highlightSeat)}` : ''
               }${interactive ? ' clickable' : ''}`}
               style={{ gridRow: row + 1, gridColumn: col + 1 }}
               title={label}

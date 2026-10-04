@@ -90,8 +90,27 @@ function migrateRelation(r: LegacyRelation): Relation {
 }
 
 export function migrateState(state: GameState): GameState {
+  const anyPlayerInvestor = state.players?.some((p) => p.track === 'investor')
+  const lifeMode =
+    state.lifeMode ?? (anyPlayerInvestor ? 'free' : 'worker')
+  const pendingDecision =
+    state.pendingDecision?.type === ('promote' as string)
+      ? {
+          type: 'enterFreeLife' as const,
+          playerId: (state.pendingDecision as { playerId: string }).playerId,
+        }
+      : state.pendingDecision
+
   return {
     ...state,
+    lifeMode,
+    monthIndex: state.monthIndex ?? Math.min(11, (state.seasonIndex ?? 0) * 3),
+    questFlags: state.questFlags ?? [],
+    pendingFreeScene: state.pendingFreeScene ?? null,
+    pendingClub: state.pendingClub ?? null,
+    pendingDecision,
+    autoChoiceMode: state.autoChoiceMode ?? 'auto',
+    autoSpeed: state.autoSpeed ?? 'fast',
     turnRolled: state.turnRolled ?? false,
     pendingCasino: state.pendingCasino ?? null,
     pendingVisitShop: state.pendingVisitShop ?? null,
@@ -99,6 +118,7 @@ export function migrateState(state: GameState): GameState {
     settlementReason: state.settlementReason ?? null,
     players: state.players.map((p) => ({
       ...p,
+      track: lifeMode === 'free' ? 'worker' : p.track,
       poachCooldown: p.poachCooldown ?? 0,
       maintainedRelationIds: p.maintainedRelationIds ?? [],
       negativePaydayStreak: p.negativePaydayStreak ?? 0,

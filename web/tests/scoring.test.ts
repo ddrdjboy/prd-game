@@ -39,6 +39,7 @@ describe('scoring', () => {
     }
     const s = scorePlayer(p)
     expect(s.free).toBe(true)
+    expect(s.charactersMet).toBe(2)
     expect(['S', 'A', 'B', 'C']).toContain(s.grade)
     expect(s.comment.length).toBeGreaterThan(0)
   })

@@ -280,68 +280,63 @@ export function visitLeave(state: GameState): GameState {
   return pushLog(clearVisit(state), `${visitor?.name ?? '访客'} 结束了探店。`)
 }
 
-/** AI：付钱 → 随机店员 → 跳过送礼 → 偶发挖角 → 离开 */
+/** 与 visitAiStep 同一套窥视随机，供 UI 按下键预览 */
+export function visitAiWouldPoach(state: GameState): boolean {
+  const v = state.pendingVisitShop
+  if (!v || v.step !== 'poach' || v.lastPoachOk != null) return false
+  const visitor = state.players.find((p) => p.id === v.playerId)
+  if (!visitor || !v.staffId || visitor.poachCooldown > 0) return false
+  if (visitor.cash + 1e-9 < VISIT_POACH_FEE) return false
+  const style = visitor.aiStyle ?? 'steady'
+  const roll = createRng(state.rngState).next()
+  return style === 'social' ? roll < 0.45 : style === 'aggressive' ? roll < 0.35 : roll < 0.15
+}
+
+/**
+ * AI 探店：每次只推进一步（付钱 / 闲聊 / 点店员 / 跳过礼物 / 挖角或离开），
+ * 好让 UI「按下闪一下再关」能对上每个按钮。
+ */
 export function visitAiStep(
   state: GameState,
   transferRelation: TransferFn,
 ): GameState {
-  let s = state
-  const rng = createRng(s.rngState)
-  const roll = () => rng.next()
-  if (!s.pendingVisitShop) return s
-  let visitor = s.players.find((p) => p.id === s.pendingVisitShop!.playerId)
-  if (!visitor) return clearVisit(s)
+  const v = state.pendingVisitShop
+  if (!v) return state
+  const visitor = state.players.find((p) => p.id === v.playerId)
+  if (!visitor) return clearVisit(state)
 
-  if (s.pendingVisitShop.step === 'pay') {
-    if (visitor.cash + 1e-9 < s.pendingVisitShop.entryFee) return visitLeave(s)
-    s = visitPay(s)
-  }
-  s = { ...s, rngState: rng.state() }
-  if (!s.pendingVisitShop) return s
-
-  if (s.pendingVisitShop.step === 'talkManager') {
-    s = visitTalk(s)
-    if (!s.pendingVisitShop) return s
+  if (v.step === 'pay') {
+    if (visitor.cash + 1e-9 < v.entryFee) return visitLeave(state)
+    return visitPay(state)
   }
 
-  const visit = s.pendingVisitShop
-  visitor = s.players.find((p) => p.id === visit.playerId)!
-  if (visit.step === 'pickStaff') {
-    const ctx = getVisitShop(s, visit)
+  if (v.step === 'talkManager') return visitTalk(state)
+
+  if (v.step === 'pickStaff') {
+    const ctx = getVisitShop(state, v)
     const staff =
       ctx?.shop.staffIds
         .map((id) => ctx.owner.relations.find((r) => r.id === id))
         .filter((r): r is NonNullable<typeof r> => r != null && true) ?? []
-    if (!staff.length || visitor.cash + 1e-9 < visit.tipFee) {
-      return visitLeave(s)
+    if (!staff.length || visitor.cash + 1e-9 < v.tipFee) return visitLeave(state)
+    const rng = createRng(state.rngState)
+    const pick = staff[Math.floor(rng.next() * staff.length)]!
+    return visitPickStaff({ ...state, rngState: rng.state() }, pick.id)
+  }
+
+  if (v.step === 'gift') return visitSkipGift(state)
+
+  if (v.step === 'poach') {
+    if (v.lastPoachOk != null) return visitLeave(state)
+    if (visitAiWouldPoach(state)) {
+      const rng = createRng(state.rngState)
+      rng.next() // 与 visitAiWouldPoach 窥视对齐，消费同一随机
+      return visitPoachSpin({ ...state, rngState: rng.state() }, transferRelation)
     }
-    const pick = staff[Math.floor(roll() * staff.length)]!
-    s = visitPickStaff(s, pick.id)
-    if (!s.pendingVisitShop) return s
+    const rng = createRng(state.rngState)
+    rng.next()
+    return visitSkipPoach({ ...state, rngState: rng.state() })
   }
 
-  if (s.pendingVisitShop.step === 'gift') {
-    s = visitSkipGift(s)
-    if (!s.pendingVisitShop) return s
-  }
-
-  const visit2 = s.pendingVisitShop
-  visitor = s.players.find((p) => p.id === visit2.playerId)!
-  if (visit2.step === 'poach') {
-    const style = visitor.aiStyle ?? 'steady'
-    const tryPoach =
-      style === 'social' ? roll() < 0.45 : style === 'aggressive' ? roll() < 0.35 : roll() < 0.15
-    if (
-      tryPoach &&
-      visit2.staffId &&
-      visitor.poachCooldown <= 0 &&
-      visitor.cash + 1e-9 >= VISIT_POACH_FEE
-    ) {
-      s = visitPoachSpin(s, transferRelation)
-    }
-    s = { ...s, rngState: rng.state() }
-    return visitLeave(s)
-  }
-
-  return visitLeave({ ...s, rngState: rng.state() })
+  return visitLeave(state)
 }

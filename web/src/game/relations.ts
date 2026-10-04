@@ -12,6 +12,8 @@ export interface DecayResult {
 export function decayPlayerRelations(
   player: PlayerState,
   skipRelationIds: string[] = [],
+  /** 相对默认衰减的倍率（自由生活月结用 1/3） */
+  scale = 1,
 ): DecayResult {
   const skip = new Set(skipRelationIds)
   const brokenNames: string[] = []
@@ -19,7 +21,8 @@ export function decayPlayerRelations(
 
   const relations: Relation[] = player.relations.map((r) => {
     if (skip.has(r.id)) return r
-    const drop = r.locked ? RELATION_DECAY_LOCKED : RELATION_DECAY_UNLOCKED
+    const base = r.locked ? RELATION_DECAY_LOCKED : RELATION_DECAY_UNLOCKED
+    const drop = Math.max(1, Math.round(base * scale))
     const before = r.affinity
     const { affinity } = applyAffinityDelta(r.affinity, -drop)
     if (affinity !== before) cooled = true
