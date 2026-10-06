@@ -1,7 +1,7 @@
 .free-life {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.45rem;
   min-height: 0;
   flex: 1;
 }
@@ -9,66 +9,268 @@
 .free-life-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
-.free-life-head h2 {
+.free-life-head .muted {
   margin: 0;
+  font-size: 0.82rem;
+}
+
+.free-life-head > button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
 }
 
 .free-life-quest {
-  margin: 0;
+  margin: 0.15rem 0 0;
   color: var(--neon-cyan, #7ef);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
 }
 
-.free-life-places {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
-  overflow: auto;
+.free-life-pan-hint {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  opacity: 0.75;
 }
 
-.free-life-place {
+/* 地图主屏：总览 2×2 → 进区大图 */
+.free-life.free-life-map {
+  min-height: 0;
+  gap: 0;
+}
+
+.free-life-park-frame {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
   position: relative;
-  min-height: 5.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  background-size: cover;
-  background-position: center;
-  text-align: left;
-  padding: 0;
   overflow: hidden;
-  cursor: pointer;
-}
-
-.free-life-place::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(10, 6, 24, 0.15), rgba(10, 6, 24, 0.82));
-}
-
-.free-life-place span {
-  position: relative;
-  z-index: 1;
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.7rem;
-  color: #fff;
 }
 
-.free-life-place em {
+.free-life-head-overlay {
+  position: absolute;
+  z-index: 3;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(12, 8, 24, 0.72);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.free-life-head-overlay > button,
+.free-life-head-overlay .free-life-back {
+  pointer-events: auto;
+}
+
+.free-life-back {
+  border: 0;
+  background: transparent;
+  color: var(--neon-cyan, #7ef);
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.free-life-overview {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  /* 顶栏 overlay 不挡上排区名太多；区名在格底 */
+}
+
+.free-life-overview-cell {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: #12081c;
+}
+
+.free-life-overview-cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s ease;
+}
+
+.free-life-overview-cell:hover img,
+.free-life-overview-cell:focus-visible img {
+  transform: scale(1.04);
+}
+
+.free-life-overview-cell:focus-visible {
+  outline: 2px solid var(--neon-cyan, #7ef);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.free-life-overview-label {
+  position: absolute;
+  left: 0.45rem;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(12, 8, 24, 0.78);
+  color: #fff;
+  text-align: left;
+  pointer-events: none;
+}
+
+.free-life-overview-label strong {
+  font-size: 1rem;
+}
+
+.free-life-overview-label em {
   font-style: normal;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   opacity: 0.85;
 }
 
-.free-life-place:disabled {
-  opacity: 0.45;
+.free-life-district {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  container-type: size;
+  padding-top: 3.2rem; /* 给 overlay 顶栏留空 */
+}
+
+.free-life-district-stage {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  width: min(100cqw, calc(100cqh * 3 / 4));
+  height: min(100cqh, calc(100cqw * 4 / 3));
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.free-life-district-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.free-life-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 2;
+  min-width: 40px;
+  min-height: 40px;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.free-life-pin-dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 50%;
+  background: #ff4d8d;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 10px #ff4d8d;
+}
+
+.free-life-pin-friend .free-life-pin-dot {
+  background: #4ecbff;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 10px #4ecbff;
+}
+
+.free-life-pin-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 4px #12081c;
+  padding: 0.08rem 0.3rem;
+  border-radius: 999px;
+  background: rgba(12, 8, 24, 0.72);
+  white-space: nowrap;
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.free-life-pin:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+.free-life-pin:focus-visible {
+  outline: 2px solid var(--neon-cyan, #7ef);
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .free-life-head-overlay {
+    left: 0.35rem;
+    right: 0.35rem;
+    top: 0.35rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  .free-life-head > button {
+    min-height: 30px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .free-life-overview-label strong {
+    font-size: 0.9rem;
+  }
+
+  .free-life-overview-label em {
+    font-size: 0.64rem;
+  }
+
+  .free-life-pin {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .free-life-pin-dot {
+    width: 0.65rem;
+    height: 0.65rem;
+  }
 }
 
 .free-life-actions {
@@ -83,19 +285,93 @@
 
 .free-life-scene {
   flex: 1;
+  min-height: 0;
   border-radius: 14px;
   background-size: cover;
   background-position: center;
   display: flex;
   align-items: flex-end;
-  min-height: 18rem;
+  justify-content: center;
   padding: 0.75rem;
 }
 
 .free-life-scene-card {
-  width: 100%;
-  max-height: 85%;
+  width: min(100%, 26rem);
+  max-height: 92%;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* 手机：立绘保持 3:4，宽度吃满卡片，高度别被 vh 压扁 */
+.free-life-scene-card .portrait-xl {
+  width: 100%;
+  max-width: 16rem;
+  margin: 0 auto;
+  aspect-ratio: 3 / 4;
+  max-height: min(42vh, 22rem);
+  height: auto;
+}
+
+@media (min-width: 900px) {
+  .free-life-scene {
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .free-life-scene-card {
+    /* 固定左栏宽度，立绘用 aspect-ratio 算高，避免宽屏 width:100% + max-height 压扁 */
+    width: min(100%, 56rem);
+    max-height: min(92%, 36rem);
+    display: grid;
+    grid-template-columns: 20rem minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr auto;
+    column-gap: 1.25rem;
+    row-gap: 0.4rem;
+    align-content: start;
+    padding: 1.1rem 1.25rem;
+  }
+
+  .free-life-scene-card .portrait-xl {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    position: relative;
+    width: 20rem;
+    max-width: 100%;
+    height: auto;
+    max-height: none;
+    aspect-ratio: 3 / 4;
+    margin: 0;
+    align-self: start;
+  }
+
+  .free-life-scene-card .portrait-xl img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  .free-life-scene-card > :not(.portrait) {
+    grid-column: 2;
+  }
+
+  .free-life-scene-card h2 {
+    margin: 0;
+    font-size: 1.45rem;
+  }
+
+  .free-life-scene-card .free-life-actions {
+    margin-top: auto;
+  }
+
+  .free-life-scene-card .free-life-actions button {
+    min-height: 44px;
+  }
 }
 
 .free-life-team {
@@ -132,8 +408,3 @@
   font-size: 0.85rem;
 }
 
-@media (min-width: 720px) {
-  .free-life-places {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}

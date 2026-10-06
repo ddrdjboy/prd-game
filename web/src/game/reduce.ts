@@ -11,6 +11,7 @@ import {
   freeCloseMonth,
   freeSceneChoice,
   freeVisit,
+  freeVisitFriend,
   skipEnterFreeLife,
 } from './freeLifeReduce'
 import { CAREERS } from './careers'
@@ -1824,6 +1825,8 @@ export function reduce(state: GameState, action: GameAction): GameState {
     }
     case 'FREE_VISIT':
       return freeVisit(state, action.placeId)
+    case 'FREE_VISIT_FRIEND':
+      return freeVisitFriend(state, action.relationId)
     case 'FREE_SCENE_CHOICE':
       return freeSceneChoice(state, action.choiceId)
     case 'FREE_CLOSE_MONTH':

@@ -11,8 +11,14 @@ import {
   relationToFighter,
   runClubBattle,
 } from './clubPk'
-import { closeFreeMonth, enterFreeLife, isFreeLife, placeLabel } from './freeLife'
-import { applyFreeLifeChoice, pickFreeLifeScene } from './freeLifeScenes'
+import {
+  canShowFriendHome,
+  closeFreeMonth,
+  enterFreeLife,
+  isFreeLife,
+  placeLabel,
+} from './freeLife'
+import { applyFreeLifeChoice, pickFreeLifeScene, pickFriendHomeScene } from './freeLifeScenes'
 import { round2 } from './finance'
 import { characterByName, characterByPortraitId } from './portraits'
 import { initialSkillsForName } from './relationsCatalog'
@@ -78,6 +84,27 @@ export function freeVisit(state: GameState, placeId: FreeLifePlaceId): GameState
     pendingFreeScene: { playerId: human.id, scene },
   }
   return pushLog(s, `${human.name} 前往「${placeLabel(placeId)}」——${scene.title}`)
+}
+
+export function freeVisitFriend(state: GameState, relationId: string): GameState {
+  if (!isFreeLife(state) || state.pendingFreeScene || state.pendingClub) return state
+  const human = state.players.find((p) => p.isHuman)
+  if (!human || human.actionPoints <= 0) return state
+  const rel = human.relations.find((r) => r.id === relationId)
+  if (!rel || !canShowFriendHome(rel)) return state
+
+  const rng = createRng(state.rngState)
+  let s = updatePlayer(state, human.id, (p) => ({
+    ...p,
+    actionPoints: p.actionPoints - 1,
+  }))
+  const scene = pickFriendHomeScene(rel, human, () => rng.next())
+  s = {
+    ...s,
+    rngState: rng.state(),
+    pendingFreeScene: { playerId: human.id, scene },
+  }
+  return pushLog(s, `${human.name} 去「${rel.name}的家」做客——${scene.title}`)
 }
 
 export function freeSceneChoice(state: GameState, choiceId: string): GameState {
@@ -259,7 +286,17 @@ export function autoFreeLifeStep(state: GameState): GameState {
   const quest = (state.questFlags ?? [])[0]
   if (quest) return freeVisit(state, quest.placeId)
 
-  const unmetPlaces: FreeLifePlaceId[] = ['cafe', 'riverside', 'gallery', 'market', 'office', 'home']
+  const unmetPlaces: FreeLifePlaceId[] = [
+    'cafe',
+    'riverside',
+    'gallery',
+    'market',
+    'office',
+    'home',
+    'bookstore',
+    'greenPark',
+    'skyBar',
+  ]
   for (const placeId of unmetPlaces) {
     // prefer places; skip club
     return freeVisit(state, placeId)

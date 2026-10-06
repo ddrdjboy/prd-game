@@ -4,14 +4,52 @@ export type Season = (typeof SEASONS)[number]
 export type Track = 'worker' | 'investor'
 /** worker=打工人棋盘；free=财富自由后的地点生活 */
 export type LifeMode = 'worker' | 'free'
-export type FreeLifePlaceId =
+export type FreeLifeTile = 'nw' | 'ne' | 'sw' | 'se'
+/** 场景池气质；club 仅会所 PK，不走对白池 */
+export type FreeLifeVibe =
   | 'home'
-  | 'cafe'
-  | 'riverside'
-  | 'gallery'
+  | 'chat'
+  | 'date'
+  | 'creative'
   | 'market'
+  | 'rest'
   | 'office'
   | 'club'
+  | 'friendHome'
+
+export type FreeLifePlaceId =
+  // NW 水岸
+  | 'riverside'
+  | 'cafe'
+  | 'pier'
+  | 'bookstore'
+  | 'teahouse'
+  | 'yoga'
+  | 'flower'
+  // NE 文创
+  | 'gallery'
+  | 'museum'
+  | 'studio'
+  | 'indieCinema'
+  | 'craftFair'
+  | 'cityLibrary'
+  | 'skyBar'
+  // SW 生活
+  | 'home'
+  | 'market'
+  | 'gym'
+  | 'clinic'
+  | 'grocery'
+  | 'greenPark'
+  | 'nightSchool'
+  // SE 城东
+  | 'office'
+  | 'club'
+  | 'privateBank'
+  | 'hotelLobby'
+  | 'bistro'
+  | 'arcade'
+  | 'spa'
 export type AutoChoiceMode = 'auto' | 'manual'
 export type AutoSpeed = 'fast' | 'medium' | 'slow'
 
@@ -181,7 +219,8 @@ export interface FreeLifeScene {
   lines: string[]
   characterName?: string
   portraitId?: string
-  artKey: FreeLifePlaceId
+  /** 展示用底图键：地点 id 或 vibe */
+  artKey: string
   choices: FreeLifeSceneChoice[]
 }
 
@@ -377,6 +416,7 @@ export type GameAction =
   | { type: 'ENTER_FREE_LIFE' }
   | { type: 'SKIP_FREE_LIFE' }
   | { type: 'FREE_VISIT'; placeId: FreeLifePlaceId }
+  | { type: 'FREE_VISIT_FRIEND'; relationId: string }
   | { type: 'FREE_SCENE_CHOICE'; choiceId: string }
   | { type: 'FREE_CLOSE_MONTH' }
   | { type: 'CLUB_CONFIRM_TEAM'; relationIds: string[] }

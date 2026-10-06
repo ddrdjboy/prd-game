@@ -1,5 +1,5 @@
 import { applyAffinityDelta } from './affinity'
-import { charactersAtPlace, clearQuest, upsertQuest } from './freeLife'
+import { charactersAtPlace, clearQuest, placeLabel, placeVibe, upsertQuest } from './freeLife'
 import { round2 } from './finance'
 import { CHARACTERS, characterByName } from './portraits'
 import { initialSkillsForName } from './relationsCatalog'
@@ -9,6 +9,7 @@ import type {
   FreeLifeQuest,
   FreeLifeScene,
   FreeLifeSceneChoice,
+  FreeLifeVibe,
   PlayerState,
   Relation,
 } from './types'
@@ -33,7 +34,9 @@ function makeMeetRelation(name: string, portraitId: string | undefined, rng: () 
 
 type SceneTemplate = {
   id: string
-  placeId: FreeLifePlaceId
+  /** 精确地点（优先）；与 vibe 二选一 */
+  placeId?: FreeLifePlaceId
+  vibe?: FreeLifeVibe
   title: string
   lines: string[]
   preferCharacter?: boolean
@@ -82,10 +85,21 @@ const TEMPLATES: SceneTemplate[] = [
     ],
   },
   {
-    id: 'cafe-chat',
-    placeId: 'cafe',
-    title: '咖啡馆窗边',
-    lines: ['座位不多，你和对方隔着一杯美式闲聊。'],
+    id: 'clinic-check',
+    placeId: 'clinic',
+    title: '社区诊所',
+    lines: ['号没排多久。护士递来一张费用单。'],
+    choices: [
+      { id: 'full', label: '做个全套（−0.12）', effects: [{ type: 'cash', amount: -0.12 }] },
+      { id: 'basic', label: '只做基础项（−0.04）', effects: [{ type: 'cash', amount: -0.04 }] },
+      { id: 'skip', label: '改日再说', effects: [] },
+    ],
+  },
+  {
+    id: 'chat-window',
+    vibe: 'chat',
+    title: '随便聊聊',
+    lines: ['气氛不紧不慢。对方似乎也有话想说。'],
     preferCharacter: true,
     choices: [
       {
@@ -104,7 +118,7 @@ const TEMPLATES: SceneTemplate[] = [
       },
       {
         id: 'quest',
-        label: '约下回还来（任务）',
+        label: '约下回咖啡馆（任务）',
         effects: [
           { type: 'meet' },
           {
@@ -118,6 +132,26 @@ const TEMPLATES: SceneTemplate[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    id: 'chat-soft',
+    vibe: 'chat',
+    title: '轻声寒暄',
+    lines: ['没有大事，只是把近况对了一下表。'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'warm',
+        label: '关心近况（好感 +8）',
+        effects: [{ type: 'meet' }, { type: 'affinity', amount: 8 }],
+      },
+      {
+        id: 'tip',
+        label: '打听消息（好感 +4）',
+        effects: [{ type: 'meet' }, { type: 'affinity', amount: 4 }],
+      },
+      { id: 'bye', label: '点头告别', effects: [{ type: 'meet' }] },
     ],
   },
   {
@@ -148,10 +182,10 @@ const TEMPLATES: SceneTemplate[] = [
     ],
   },
   {
-    id: 'river-walk',
-    placeId: 'riverside',
-    title: '江风',
-    lines: ['江面上泛着细碎的光。并肩走了一段。'],
+    id: 'date-walk',
+    vibe: 'date',
+    title: '并肩走走',
+    lines: ['风不大。有人放慢脚步等你。'],
     preferCharacter: true,
     choices: [
       {
@@ -164,14 +198,38 @@ const TEMPLATES: SceneTemplate[] = [
         label: '合影留念（好感 +8）',
         effects: [{ type: 'meet' }, { type: 'affinity', amount: 8 }],
       },
-      { id: 'alone', label: '独自吹风', effects: [] },
+      { id: 'alone', label: '独自待会儿', effects: [] },
     ],
   },
   {
-    id: 'gallery-show',
-    placeId: 'gallery',
-    title: '画廊开幕',
-    lines: ['墙上是霓虹色块。有人请你品评一幅新作。'],
+    id: 'date-treat',
+    vibe: 'date',
+    title: '气氛正好',
+    lines: ['灯色偏暖。对方看向你，像在等一个邀请。'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'pay',
+        label: '请客（−0.1，好感 +18）',
+        effects: [
+          { type: 'cash', amount: -0.1 },
+          { type: 'meet' },
+          { type: 'affinity', amount: 18 },
+        ],
+      },
+      {
+        id: 'talk',
+        label: '深聊一阵（好感 +12）',
+        effects: [{ type: 'meet' }, { type: 'affinity', amount: 12 }],
+      },
+      { id: 'early', label: '早点回去', effects: [{ type: 'meet' }] },
+    ],
+  },
+  {
+    id: 'creative-show',
+    vibe: 'creative',
+    title: '新作品',
+    lines: ['有人请你看一眼刚完成的东西。'],
     preferCharacter: true,
     choices: [
       {
@@ -179,7 +237,7 @@ const TEMPLATES: SceneTemplate[] = [
         label: '买下小品（−0.25 现金，+0.3 资产）',
         effects: [
           { type: 'cash', amount: -0.25 },
-          { type: 'asset', amount: 0.3, name: '画廊小品' },
+          { type: 'asset', amount: 0.3, name: '创作小品' },
           { type: 'meet' },
         ],
       },
@@ -192,9 +250,33 @@ const TEMPLATES: SceneTemplate[] = [
     ],
   },
   {
+    id: 'creative-collab',
+    vibe: 'creative',
+    title: '临时搭把手',
+    lines: ['工期紧。对方问你愿不愿意帮一点忙。'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'help',
+        label: '帮忙收尾（好感 +10，−0.05）',
+        effects: [
+          { type: 'cash', amount: -0.05 },
+          { type: 'meet' },
+          { type: 'affinity', amount: 10 },
+        ],
+      },
+      {
+        id: 'idea',
+        label: '给个点子（好感 +7）',
+        effects: [{ type: 'meet' }, { type: 'affinity', amount: 7 }],
+      },
+      { id: 'no', label: '这次没空', effects: [{ type: 'meet' }] },
+    ],
+  },
+  {
     id: 'market-stall',
-    placeId: 'market',
-    title: '市集摊位',
+    vibe: 'market',
+    title: '摊位前',
     lines: ['人声嘈杂。一个摊主压价推销库存。'],
     choices: [
       { id: 'flip', label: '吃进再转手（+0.12 现金）', effects: [{ type: 'cash', amount: 0.12 }] },
@@ -210,10 +292,59 @@ const TEMPLATES: SceneTemplate[] = [
     ],
   },
   {
+    id: 'market-deal',
+    vibe: 'market',
+    title: '一口价',
+    lines: ['对方报了个含糊的数字，等你点头。'],
+    choices: [
+      { id: 'take', label: '成交（−0.08，+0.15 资产）', effects: [{ type: 'cash', amount: -0.08 }, { type: 'asset', amount: 0.15, name: '市集货' }] },
+      { id: 'haggle', label: '砍一半再买（−0.04，+0.08 资产）', effects: [{ type: 'cash', amount: -0.04 }, { type: 'asset', amount: 0.08, name: '市集货' }] },
+      { id: 'walk', label: '算了', effects: [] },
+    ],
+  },
+  {
+    id: 'rest-breathe',
+    vibe: 'rest',
+    title: '缓一口气',
+    lines: ['身体先放松下来。脑子也清了一点。'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'with',
+        label: '和熟人一起（好感 +9）',
+        effects: [{ type: 'meet' }, { type: 'affinity', amount: 9 }],
+      },
+      { id: 'solo', label: '自己静一静', effects: [] },
+      {
+        id: 'spa-extra',
+        label: '加个小项目（−0.07，好感 +6）',
+        effects: [
+          { type: 'cash', amount: -0.07 },
+          { type: 'meet' },
+          { type: 'affinity', amount: 6 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'rest-nap',
+    vibe: 'rest',
+    title: '偷得浮生',
+    lines: ['没有任务。你可以什么都不做。'],
+    choices: [
+      { id: 'nap', label: '彻底放空', effects: [] },
+      {
+        id: 'snack',
+        label: '买点补给（−0.03）',
+        effects: [{ type: 'cash', amount: -0.03 }],
+      },
+    ],
+  },
+  {
     id: 'office-deal',
-    placeId: 'office',
-    title: '旧事务所的方案',
-    lines: ['桌上摊着一份入股合同。数字不大，但要立刻拍板。'],
+    vibe: 'office',
+    title: '桌上的方案',
+    lines: ['摊着一份数字不大的合同，要立刻拍板。'],
     preferCharacter: true,
     choices: [
       {
@@ -288,6 +419,52 @@ const TEMPLATES: SceneTemplate[] = [
       },
     ],
   },
+  {
+    id: 'friend-home-tea',
+    vibe: 'friendHome',
+    title: '做客',
+    lines: ['玄关放着两双拖鞋。屋里有茶的味道。'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'chat',
+        label: '坐下来聊（好感 +14）',
+        effects: [{ type: 'affinity', amount: 14 }],
+      },
+      {
+        id: 'gift',
+        label: '带了点心（−0.05，好感 +20）',
+        effects: [
+          { type: 'cash', amount: -0.05 },
+          { type: 'affinity', amount: 20 },
+        ],
+      },
+      { id: 'short', label: '坐一会儿就走（好感 +6）', effects: [{ type: 'affinity', amount: 6 }] },
+    ],
+  },
+  {
+    id: 'friend-home-help',
+    vibe: 'friendHome',
+    title: '帮一点忙',
+    lines: ['对方指了指角落里堆着的纸箱：「能搭把手吗？」'],
+    preferCharacter: true,
+    choices: [
+      {
+        id: 'help',
+        label: '帮忙收拾（好感 +16）',
+        effects: [{ type: 'affinity', amount: 16 }],
+      },
+      {
+        id: 'order',
+        label: '叫外卖一起吃（−0.08，好感 +18）',
+        effects: [
+          { type: 'cash', amount: -0.08 },
+          { type: 'affinity', amount: 18 },
+        ],
+      },
+      { id: 'rain', label: '改日再来', effects: [{ type: 'affinity', amount: 4 }] },
+    ],
+  },
 ]
 
 function pickCharacterForPlace(
@@ -310,28 +487,28 @@ function pickCharacterForPlace(
   return pool[Math.floor(rng() * pool.length)] ?? null
 }
 
-export function pickFreeLifeScene(
+function templatesForPlace(placeId: FreeLifePlaceId): SceneTemplate[] {
+  const vibe = placeVibe(placeId)
+  const byPlace = TEMPLATES.filter((t) => t.placeId === placeId)
+  const byVibe = TEMPLATES.filter((t) => t.vibe === vibe && !t.placeId)
+  return [...byPlace, ...byVibe]
+}
+
+function materializeScene(
+  tmpl: SceneTemplate,
   placeId: FreeLifePlaceId,
   player: PlayerState,
   quests: FreeLifeQuest[],
   rng: () => number,
+  forced?: { name: string; portraitId?: string },
 ): FreeLifeScene {
   const quest = quests.find((q) => q.placeId === placeId)
-  let pool = TEMPLATES.filter((t) => t.placeId === placeId)
-  if (quest) {
-    const qScenes = pool.filter((t) => t.questId === quest.id)
-    pool = qScenes.length ? qScenes : pool.filter((t) => !t.questId)
-  } else {
-    pool = pool.filter((t) => !t.questId)
-  }
-  if (!pool.length) {
-    pool = TEMPLATES.filter((t) => t.placeId === placeId && !t.questId)
-  }
-  const tmpl = pool[Math.floor(rng() * pool.length)] ?? TEMPLATES[0]
-
   let characterName: string | undefined
   let portraitId: string | undefined
-  if (tmpl.preferCharacter) {
+  if (forced) {
+    characterName = forced.name
+    portraitId = forced.portraitId
+  } else if (tmpl.preferCharacter) {
     const ch = pickCharacterForPlace(placeId, player, quest?.characterName || undefined, rng)
     if (ch) {
       characterName = ch.name
@@ -339,6 +516,7 @@ export function pickFreeLifeScene(
     }
   }
 
+  const placeName = placeLabel(placeId)
   const choices: FreeLifeSceneChoice[] = tmpl.choices.map((c) => ({
     ...c,
     effects: c.effects.map((e) => {
@@ -358,12 +536,57 @@ export function pickFreeLifeScene(
   return {
     id: tmpl.id,
     placeId,
-    title: tmpl.title,
-    lines: tmpl.lines,
+    title: tmpl.title.includes('{place}') ? tmpl.title.replace('{place}', placeName) : tmpl.title,
+    lines: tmpl.lines.map((l) => l.replaceAll('{place}', placeName)),
     characterName,
     portraitId,
     artKey: placeId,
     choices,
+  }
+}
+
+export function pickFreeLifeScene(
+  placeId: FreeLifePlaceId,
+  player: PlayerState,
+  quests: FreeLifeQuest[],
+  rng: () => number,
+): FreeLifeScene {
+  const quest = quests.find((q) => q.placeId === placeId)
+  let pool = templatesForPlace(placeId)
+  if (quest) {
+    const qScenes = pool.filter((t) => t.questId === quest.id)
+    pool = qScenes.length ? qScenes : pool.filter((t) => !t.questId)
+  } else {
+    pool = pool.filter((t) => !t.questId)
+  }
+  if (!pool.length) {
+    pool = templatesForPlace(placeId).filter((t) => !t.questId)
+  }
+  const tmpl = pool[Math.floor(rng() * pool.length)] ?? TEMPLATES[0]
+  return materializeScene(tmpl, placeId, player, quests, rng)
+}
+
+/** 去好友家做客：固定角色 + friendHome 池 */
+export function pickFriendHomeScene(
+  relation: Relation,
+  player: PlayerState,
+  rng: () => number,
+): FreeLifeScene {
+  const pool = TEMPLATES.filter((t) => t.vibe === 'friendHome' && !t.questId)
+  const tmpl = pool[Math.floor(rng() * pool.length)] ?? pool[0]!
+  const scene = materializeScene(
+    tmpl,
+    'home',
+    player,
+    [],
+    rng,
+    { name: relation.name, portraitId: relation.portraitId },
+  )
+  return {
+    ...scene,
+    title: `${relation.name}的家`,
+    lines: [`你按响了门铃。${relation.name} 打开门，让你进去。`, ...scene.lines],
+    artKey: 'friendHome',
   }
 }
 

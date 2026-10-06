@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { fighterStats, runClubBattle, relationToFighter, buildCpuTeam } from '../src/game/clubPk'
 import { createFreeLifeDebugGame, createGame } from '../src/game/createGame'
-import { enterFreeLife, monthLabel } from '../src/game/freeLife'
+import {
+  FREE_LIFE_PLACES,
+  enterFreeLife,
+  listFriendHomePins,
+  monthLabel,
+} from '../src/game/freeLife'
 import { pickFreeLifeScene, applyFreeLifeChoice } from '../src/game/freeLifeScenes'
 import { reduce } from '../src/game/reduce'
 import type { Relation } from '../src/game/types'
@@ -60,6 +65,31 @@ describe('free life', () => {
     const choiceId = g.pendingFreeScene!.scene.choices[0].id
     g = reduce(g, { type: 'FREE_SCENE_CHOICE', choiceId })
     expect(g.pendingFreeScene).toBeNull()
+  })
+
+  it('has 28 fixed places across four tiles', () => {
+    expect(FREE_LIFE_PLACES).toHaveLength(28)
+    expect(FREE_LIFE_PLACES.filter((p) => p.tile === 'nw')).toHaveLength(7)
+    expect(FREE_LIFE_PLACES.filter((p) => p.tile === 'ne')).toHaveLength(7)
+    expect(FREE_LIFE_PLACES.filter((p) => p.tile === 'sw')).toHaveLength(7)
+    expect(FREE_LIFE_PLACES.filter((p) => p.tile === 'se')).toHaveLength(7)
+  })
+
+  it('new district place still draws a scene', () => {
+    let g = freeGame()
+    g = reduce(g, { type: 'FREE_VISIT', placeId: 'bookstore' })
+    expect(g.pendingFreeScene?.scene.placeId).toBe('bookstore')
+    expect(g.pendingFreeScene!.scene.choices.length).toBeGreaterThan(0)
+  })
+
+  it('friend home pins for met friends and visit opens scene', () => {
+    let g = freeGame()
+    const pins = listFriendHomePins(g.players[0])
+    expect(pins.some((p) => p.name === '蓝铃')).toBe(true)
+    g = reduce(g, { type: 'FREE_VISIT_FRIEND', relationId: 'r1' })
+    expect(g.players[0].actionPoints).toBe(3)
+    expect(g.pendingFreeScene?.scene.artKey).toBe('friendHome')
+    expect(g.pendingFreeScene?.scene.characterName).toBe('蓝铃')
   })
 
   it('close month advances calendar', () => {

@@ -1,9 +1,19 @@
 import { useMemo, useState } from 'react'
 import { eligibleClubRelations, fighterStats } from '../../game/clubPk'
-import { FREE_LIFE_PLACES, monthLabel, placeLabel } from '../../game/freeLife'
+import {
+  FREE_LIFE_PLACES,
+  listFriendHomePins,
+  monthLabel,
+  placeLabel,
+} from '../../game/freeLife'
 import { STAGE_LABEL, stageFromAffinity } from '../../game/affinity'
-import type { FreeLifePlaceId, GameAction, GameState } from '../../game/types'
-import { freePlaceArt } from '../art'
+import type { FreeLifeTile, GameAction, GameState } from '../../game/types'
+import { FREE_LIFE_MAP_TILE_ART, freePlaceArt } from '../art'
+import {
+  FREE_LIFE_MAP_TILES,
+  hotspotsForTile,
+  tileLabel,
+} from '../freeLifeMapLayout'
 import { Portrait } from './Portrait'
 import './FreeLifePanel.css'
 
@@ -12,13 +22,21 @@ type Props = {
   dispatch: (a: GameAction) => void
 }
 
+type MapView = 'overview' | FreeLifeTile
+
 export function FreeLifePanel({ state, dispatch }: Props) {
   const human = state.players.find((p) => p.isHuman) ?? state.players[0]
   const [team, setTeam] = useState<string[]>([])
+  const [mapView, setMapView] = useState<MapView>('overview')
   const club = state.pendingClub
   const scene = state.pendingFreeScene?.scene
 
   const eligible = useMemo(() => eligibleClubRelations(human), [human])
+  const friendPins = useMemo(() => listFriendHomePins(human), [human])
+  const districtPins = useMemo(
+    () => (mapView === 'overview' ? [] : hotspotsForTile(mapView)),
+    [mapView],
+  )
 
   const toggle = (id: string) => {
     setTeam((prev) => {
@@ -141,7 +159,11 @@ export function FreeLifePanel({ state, dispatch }: Props) {
             />
           ) : null}
           <h2>{scene.title}</h2>
-          <p className="muted">{placeLabel(scene.placeId)}</p>
+          <p className="muted">
+            {scene.artKey === 'friendHome'
+              ? `${scene.characterName ?? ''}的家`
+              : placeLabel(scene.placeId)}
+          </p>
           {scene.lines.map((line) => (
             <p key={line}>{line}</p>
           ))}
@@ -165,40 +187,125 @@ export function FreeLifePanel({ state, dispatch }: Props) {
     .map((q) => q.label)
     .join(' · ')
 
-  return (
-    <div className="free-life free-life-map panel">
-      <header className="free-life-head">
-        <div>
-          <h2>自由生活</h2>
-          <p className="muted">
-            {state.age} 岁 · {monthLabel(state.monthIndex)} · 行动点 {human.actionPoints}
-          </p>
+  const statusLine = (
+    <p className="muted">
+      {state.age} 岁 · {monthLabel(state.monthIndex)} · 行动点 {human.actionPoints}
+    </p>
+  )
+
+  const endMonthBtn = (
+    <button
+      className="primary"
+      disabled={human.actionPoints > 0 && Boolean(state.pendingFreeScene || state.pendingClub)}
+      onClick={() => dispatch({ type: 'FREE_CLOSE_MONTH' })}
+    >
+      {human.actionPoints > 0 ? '提前结束本月' : '进入下月'}
+    </button>
+  )
+
+  if (mapView === 'overview') {
+    return (
+      <div className="free-life free-life-map">
+        <div className="free-life-park-frame">
+          <header className="free-life-head free-life-head-overlay">
+            <div>
+              {statusLine}
+              <p className="free-life-pan-hint">点选区域进入</p>
+              {questHint ? <p className="free-life-quest">进行中：{questHint}</p> : null}
+            </div>
+            {endMonthBtn}
+          </header>
+          <div className="free-life-overview" role="navigation" aria-label="园区总览">
+            {FREE_LIFE_MAP_TILES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`free-life-overview-cell free-life-overview-${t.id}`}
+                onClick={() => setMapView(t.id)}
+                aria-label={`进入${t.name}区：${t.blurb}`}
+              >
+                <img src={FREE_LIFE_MAP_TILE_ART[t.id]} alt="" draggable={false} />
+                <span className="free-life-overview-label">
+                  <strong>{t.name}</strong>
+                  <em>{t.blurb}</em>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-        <button
-          className="primary"
-          disabled={human.actionPoints > 0 && Boolean(state.pendingFreeScene || state.pendingClub)}
-          onClick={() => dispatch({ type: 'FREE_CLOSE_MONTH' })}
-        >
-          {human.actionPoints > 0 ? '提前结束本月' : '进入下月'}
-        </button>
-      </header>
-      {questHint ? <p className="free-life-quest">进行中：{questHint}</p> : null}
-      <div className="free-life-places">
-        {FREE_LIFE_PLACES.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className="free-life-place"
-            style={{ backgroundImage: `url(${freePlaceArt(p.id)})` }}
-            disabled={human.actionPoints <= 0}
-            onClick={() => dispatch({ type: 'FREE_VISIT', placeId: p.id as FreeLifePlaceId })}
-          >
-            <span>
-              <strong>{p.name}</strong>
-              <em>{p.blurb}</em>
-            </span>
-          </button>
-        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="free-life free-life-map">
+      <div className="free-life-park-frame">
+        <header className="free-life-head free-life-head-overlay">
+          <div>
+            <p className="muted">
+              <button
+                type="button"
+                className="free-life-back"
+                onClick={() => setMapView('overview')}
+              >
+                ← 返回地图
+              </button>
+              {' · '}
+              {tileLabel(mapView)}区 · 行动点 {human.actionPoints}
+            </p>
+            {questHint ? <p className="free-life-quest">进行中：{questHint}</p> : null}
+          </div>
+          {endMonthBtn}
+        </header>
+
+        <div className="free-life-district">
+          <div className="free-life-district-stage">
+            <img
+              src={FREE_LIFE_MAP_TILE_ART[mapView]}
+              alt={`${tileLabel(mapView)}区地图`}
+              className="free-life-district-img"
+              draggable={false}
+            />
+            {districtPins.map((h) => {
+              const place = FREE_LIFE_PLACES.find((p) => p.id === h.id)
+              if (!place) return null
+              return (
+                <button
+                  key={h.id}
+                  type="button"
+                  className="free-life-pin"
+                  style={{ left: `${h.left}%`, top: `${h.top}%` }}
+                  disabled={human.actionPoints <= 0}
+                  aria-label={`前往${place.name}：${place.blurb}`}
+                  title={place.blurb}
+                  onClick={() => dispatch({ type: 'FREE_VISIT', placeId: h.id })}
+                >
+                  <span className="free-life-pin-dot" aria-hidden />
+                  <span className="free-life-pin-name">{place.name}</span>
+                </button>
+              )
+            })}
+            {mapView === 'sw'
+              ? friendPins.map((f) => (
+                  <button
+                    key={f.relationId}
+                    type="button"
+                    className="free-life-pin free-life-pin-friend"
+                    style={{ left: `${f.left}%`, top: `${f.top}%` }}
+                    disabled={human.actionPoints <= 0}
+                    aria-label={`去${f.name}的家做客`}
+                    title={`${f.name}的家`}
+                    onClick={() =>
+                      dispatch({ type: 'FREE_VISIT_FRIEND', relationId: f.relationId })
+                    }
+                  >
+                    <span className="free-life-pin-dot" aria-hidden />
+                    <span className="free-life-pin-name">{f.name}家</span>
+                  </button>
+                ))
+              : null}
+          </div>
+        </div>
       </div>
     </div>
   )

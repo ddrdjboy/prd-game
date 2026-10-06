@@ -1,4 +1,5 @@
-import type { EventKind, SpaceKind } from '../game/types'
+import { placeVibe } from '../game/freeLife'
+import type { EventKind, FreeLifePlaceId, FreeLifeVibe, SpaceKind } from '../game/types'
 
 /** 场景插画：文件位于 web/public/art/，仅供展示层使用 */
 const art = (name: string) => `${import.meta.env.BASE_URL}art/${name}.jpg`
@@ -7,6 +8,15 @@ export const HOME_ART = art('home-hero')
 export const PLAY_ART = art('play-bg')
 export const SETTLE_FREE_ART = art('settle-free')
 export const SETTLE_GRIND_ART = art('settle-grind')
+/** @deprecated 单张旧图；自由生活主界面改用四切片 */
+export const FREE_LIFE_MAP = art('free-life-map')
+
+export const FREE_LIFE_MAP_TILE_ART = {
+  nw: art('free-life-map-nw'),
+  ne: art('free-life-map-ne'),
+  sw: art('free-life-map-sw'),
+  se: art('free-life-map-se'),
+} as const
 
 export const SPACE_ART: Record<SpaceKind, string> = {
   payday: art('space-payday'),
@@ -55,21 +65,43 @@ export const EVENT_ART: Record<EventKind, string> = {
   narrative: HOME_ART,
 }
 
-export const FREE_PLACE_ART: Record<string, string> = {
+const VIBE_ART: Record<FreeLifeVibe, string> = {
   home: art('venue-chat'),
+  chat: art('venue-cafe'),
+  date: art('venue-park'),
+  creative: art('career-designer'),
+  market: art('space-shop'),
+  rest: art('venue-hobby'),
+  office: art('space-office'),
+  club: art('space-casino'),
+  friendHome: art('venue-private'),
+}
+
+/** 个别地点覆盖 vibe 默认图 */
+export const FREE_PLACE_ART: Partial<Record<FreeLifePlaceId | string, string>> = {
   cafe: art('venue-cafe'),
   riverside: art('venue-park'),
   gallery: art('career-designer'),
-  market: art('space-shop'),
-  office: art('space-office'),
+  indieCinema: art('venue-cinema'),
+  bistro: art('venue-dinner'),
   club: art('space-casino'),
+  friendHome: art('venue-private'),
 }
 
 export const spaceArt = (kind: SpaceKind): string => SPACE_ART[kind]
 export const venueArt = (id: string): string | undefined => VENUE_ART[id]
 export const careerArt = (id: string): string | undefined => CAREER_ART[id]
 export const eventArt = (kind: EventKind): string => EVENT_ART[kind]
-export const freePlaceArt = (id: string): string => FREE_PLACE_ART[id] ?? PLAY_ART
+
+export const freePlaceArt = (id: string): string => {
+  if (FREE_PLACE_ART[id]) return FREE_PLACE_ART[id]!
+  if (id in VIBE_ART) return VIBE_ART[id as FreeLifeVibe]
+  try {
+    return VIBE_ART[placeVibe(id as FreeLifePlaceId)] ?? PLAY_ART
+  } catch {
+    return PLAY_ART
+  }
+}
 
 export const ALL_ART: string[] = Array.from(
   new Set([
@@ -77,6 +109,8 @@ export const ALL_ART: string[] = Array.from(
     PLAY_ART,
     SETTLE_FREE_ART,
     SETTLE_GRIND_ART,
+    FREE_LIFE_MAP,
+    ...Object.values(FREE_LIFE_MAP_TILE_ART),
     ...Object.values(SPACE_ART),
     ...Object.values(VENUE_ART),
     ...Object.values(CAREER_ART),
