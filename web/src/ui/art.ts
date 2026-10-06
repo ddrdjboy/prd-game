@@ -8,8 +8,11 @@ export const HOME_ART = art('home-hero')
 export const PLAY_ART = art('play-bg')
 export const SETTLE_FREE_ART = art('settle-free')
 export const SETTLE_GRIND_ART = art('settle-grind')
-/** @deprecated 单张旧图；自由生活主界面改用四切片 */
+/** @deprecated 单张旧图；总览改用 FREE_LIFE_WORLD_ART，分区仍用四切片 */
 export const FREE_LIFE_MAP = art('free-life-map')
+
+/** 自由生活无缝世界图总览 */
+export const FREE_LIFE_WORLD_ART = art('free-life-world')
 
 export const FREE_LIFE_MAP_TILE_ART = {
   nw: art('free-life-map-nw'),
@@ -110,6 +113,7 @@ export const ALL_ART: string[] = Array.from(
     SETTLE_FREE_ART,
     SETTLE_GRIND_ART,
     FREE_LIFE_MAP,
+    FREE_LIFE_WORLD_ART,
     ...Object.values(FREE_LIFE_MAP_TILE_ART),
     ...Object.values(SPACE_ART),
     ...Object.values(VENUE_ART),

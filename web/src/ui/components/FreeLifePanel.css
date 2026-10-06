@@ -38,7 +38,7 @@
   opacity: 0.75;
 }
 
-/* 地图主屏：总览 2×2 → 进区大图 */
+/* 地图主屏：无缝世界图总览 → 进区大图 */
 .free-life.free-life-map {
   min-height: 0;
   gap: 0;
@@ -54,6 +54,7 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
+  background: #12081c;
 }
 
 .free-life-head-overlay {
@@ -86,70 +87,107 @@
   text-underline-offset: 2px;
 }
 
-.free-life-overview {
+.free-life-world-viewport {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 3px;
-  background: rgba(0, 0, 0, 0.35);
-  /* 顶栏 overlay 不挡上排区名太多；区名在格底 */
-}
-
-.free-life-overview-cell {
   position: relative;
-  margin: 0;
-  padding: 0;
-  border: 0;
   overflow: hidden;
-  cursor: pointer;
-  background: #12081c;
+  touch-action: none;
+  cursor: grab;
+  padding-top: 3.2rem;
+  background: rgba(0, 0, 0, 0.25);
 }
 
-.free-life-overview-cell img {
+.free-life-world-viewport:active {
+  cursor: grabbing;
+}
+
+.free-life-world-viewport .map-pan-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.free-life-world-img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: transform 0.25s ease;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
 }
 
-.free-life-overview-cell:hover img,
-.free-life-overview-cell:focus-visible img {
-  transform: scale(1.04);
+.free-life-world-hotspots {
+  position: absolute;
+  inset: 0;
 }
 
-.free-life-overview-cell:focus-visible {
+.free-life-world-hotspot {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: #fff;
+}
+
+.free-life-world-hotspot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(126, 239, 255, 0.08);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.free-life-world-hotspot:hover::before,
+.free-life-world-hotspot:focus-visible::before {
+  opacity: 1;
+}
+
+.free-life-world-hotspot:focus-visible {
   outline: 2px solid var(--neon-cyan, #7ef);
   outline-offset: -2px;
   z-index: 1;
 }
 
-.free-life-overview-label {
+.free-life-world-label {
   position: absolute;
-  left: 0.45rem;
-  right: 0.45rem;
-  bottom: 0.45rem;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.1rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.3rem 0.55rem;
   border-radius: 8px;
-  background: rgba(12, 8, 24, 0.78);
-  color: #fff;
-  text-align: left;
+  background: rgba(12, 8, 24, 0.55);
+  text-align: center;
   pointer-events: none;
-}
-
-.free-life-overview-label strong {
-  font-size: 1rem;
-}
-
-.free-life-overview-label em {
-  font-style: normal;
-  font-size: 0.7rem;
   opacity: 0.85;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.free-life-world-hotspot:hover .free-life-world-label,
+.free-life-world-hotspot:focus-visible .free-life-world-label {
+  opacity: 1;
+  background: rgba(12, 8, 24, 0.82);
+}
+
+.free-life-world-label strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.free-life-world-label em {
+  font-style: normal;
+  font-size: 0.65rem;
+  opacity: 0.85;
+  max-width: 9rem;
 }
 
 .free-life-district {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { eligibleClubRelations, fighterStats } from '../../game/clubPk'
 import {
   FREE_LIFE_PLACES,
@@ -8,12 +8,14 @@ import {
 } from '../../game/freeLife'
 import { STAGE_LABEL, stageFromAffinity } from '../../game/affinity'
 import type { FreeLifeTile, GameAction, GameState } from '../../game/types'
-import { FREE_LIFE_MAP_TILE_ART, freePlaceArt } from '../art'
+import { FREE_LIFE_MAP_TILE_ART, FREE_LIFE_WORLD_ART, freePlaceArt } from '../art'
 import {
   FREE_LIFE_MAP_TILES,
+  WORLD_TILE_HOTSPOTS,
   hotspotsForTile,
   tileLabel,
 } from '../freeLifeMapLayout'
+import { MapPanViewport } from './MapPanViewport'
 import { Portrait } from './Portrait'
 import './FreeLifePanel.css'
 
@@ -28,6 +30,7 @@ export function FreeLifePanel({ state, dispatch }: Props) {
   const human = state.players.find((p) => p.isHuman) ?? state.players[0]
   const [team, setTeam] = useState<string[]>([])
   const [mapView, setMapView] = useState<MapView>('overview')
+  const suppressWorldClick = useRef(false)
   const club = state.pendingClub
   const scene = state.pendingFreeScene?.scene
 
@@ -210,28 +213,51 @@ export function FreeLifePanel({ state, dispatch }: Props) {
           <header className="free-life-head free-life-head-overlay">
             <div>
               {statusLine}
-              <p className="free-life-pan-hint">点选区域进入</p>
+              <p className="free-life-pan-hint">拖动浏览 · 点选区域进入</p>
               {questHint ? <p className="free-life-quest">进行中：{questHint}</p> : null}
             </div>
             {endMonthBtn}
           </header>
-          <div className="free-life-overview" role="navigation" aria-label="园区总览">
-            {FREE_LIFE_MAP_TILES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`free-life-overview-cell free-life-overview-${t.id}`}
-                onClick={() => setMapView(t.id)}
-                aria-label={`进入${t.name}区：${t.blurb}`}
-              >
-                <img src={FREE_LIFE_MAP_TILE_ART[t.id]} alt="" draggable={false} />
-                <span className="free-life-overview-label">
-                  <strong>{t.name}</strong>
-                  <em>{t.blurb}</em>
-                </span>
-              </button>
-            ))}
-          </div>
+          <MapPanViewport
+            className="free-life-world-viewport"
+            suppressClickRef={suppressWorldClick}
+          >
+            <img
+              src={FREE_LIFE_WORLD_ART}
+              alt="自由生活城市总览"
+              className="free-life-world-img"
+              draggable={false}
+            />
+            <div className="free-life-world-hotspots" role="navigation" aria-label="园区总览">
+              {WORLD_TILE_HOTSPOTS.map((h) => {
+                const meta = FREE_LIFE_MAP_TILES.find((t) => t.id === h.id)
+                if (!meta) return null
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className={`free-life-world-hotspot free-life-world-hotspot-${h.id}`}
+                    style={{
+                      left: `${h.left}%`,
+                      top: `${h.top}%`,
+                      width: `${h.width}%`,
+                      height: `${h.height}%`,
+                    }}
+                    aria-label={`进入${meta.name}区：${meta.blurb}`}
+                    onClick={() => {
+                      if (suppressWorldClick.current) return
+                      setMapView(h.id)
+                    }}
+                  >
+                    <span className="free-life-world-label">
+                      <strong>{meta.name}</strong>
+                      <em>{meta.blurb}</em>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </MapPanViewport>
         </div>
       </div>
     )

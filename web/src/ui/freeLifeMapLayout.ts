@@ -61,6 +61,26 @@ export const FREE_LIFE_MAP_TILES: {
   { id: 'se', file: 'free-life-map-se', name: '城东', blurb: '事务所、会所、银行…' },
 ]
 
+/** 世界图四区热区：相对整图百分比矩形 left/top/width/height */
+export type WorldTileHotspot = {
+  id: FreeLifeTile
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+export const WORLD_TILE_HOTSPOTS: WorldTileHotspot[] = [
+  { id: 'nw', left: 0, top: 0, width: 50, height: 50 },
+  { id: 'ne', left: 50, top: 0, width: 50, height: 50 },
+  { id: 'sw', left: 0, top: 50, width: 50, height: 50 },
+  { id: 'se', left: 50, top: 50, width: 50, height: 50 },
+]
+
+export function worldHotspotForTile(tile: FreeLifeTile): WorldTileHotspot | undefined {
+  return WORLD_TILE_HOTSPOTS.find((h) => h.id === tile)
+}
+
 export function hotspotsForTile(tile: FreeLifeTile): MapHotspot[] {
   return FREE_LIFE_MAP_HOTSPOTS.filter((h) => h.tile === tile)
 }

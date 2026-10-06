@@ -11,14 +11,17 @@ import {
   ALL_ART,
   EVENT_ART,
   FREE_LIFE_MAP_TILE_ART,
+  FREE_LIFE_WORLD_ART,
   careerArt,
   spaceArt,
   venueArt,
 } from '../src/ui/art'
 import {
   FREE_LIFE_MAP_HOTSPOTS,
+  WORLD_TILE_HOTSPOTS,
   hotspotsForTile,
   hotspotTileMatchesPlace,
+  worldHotspotForTile,
 } from '../src/ui/freeLifeMapLayout'
 
 const publicFile = (url: string) => resolve(__dirname, '../public', url.replace(/^\//, ''))
@@ -66,6 +69,12 @@ describe('scene art', () => {
       expect(existsSync(publicFile(url)), url).toBe(true)
     }
   })
+
+  it('自由生活无缝世界图存在', () => {
+    expect(FREE_LIFE_WORLD_ART).toMatch(/art\/free-life-world\.jpg$/)
+    expect(ALL_ART).toContain(FREE_LIFE_WORLD_ART)
+    expect(existsSync(publicFile(FREE_LIFE_WORLD_ART))).toBe(true)
+  })
 })
 
 describe('free life park map hotspots', () => {
@@ -91,5 +100,23 @@ describe('free life park map hotspots', () => {
     expect(hotspotsForTile('se')).toHaveLength(7)
     expect(hotspotsForTile('sw').some((h) => h.id === 'home')).toBe(true)
     expect(hotspotsForTile('se').some((h) => h.id === 'club')).toBe(true)
+  })
+})
+
+describe('free life world map hotspots', () => {
+  it('四区热区覆盖整图且百分比合法', () => {
+    expect(WORLD_TILE_HOTSPOTS).toHaveLength(4)
+    expect(WORLD_TILE_HOTSPOTS.map((h) => h.id).sort()).toEqual(['ne', 'nw', 'se', 'sw'])
+    for (const h of WORLD_TILE_HOTSPOTS) {
+      expect(h.left).toBeGreaterThanOrEqual(0)
+      expect(h.top).toBeGreaterThanOrEqual(0)
+      expect(h.width).toBeGreaterThan(0)
+      expect(h.height).toBeGreaterThan(0)
+      expect(h.left + h.width).toBeLessThanOrEqual(100)
+      expect(h.top + h.height).toBeLessThanOrEqual(100)
+      expect(worldHotspotForTile(h.id)?.id).toBe(h.id)
+    }
+    const area = WORLD_TILE_HOTSPOTS.reduce((s, h) => s + h.width * h.height, 0)
+    expect(area).toBe(10000)
   })
 })
